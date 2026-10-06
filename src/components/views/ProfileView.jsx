@@ -104,6 +104,71 @@ export default function ProfileView() {
     e.preventDefault();
     setError("");
 
+    const cleanPseudonym = (formData.pseudonym || "").trim();
+    const cleanBio = (formData.bio || "").trim();
+    const ageNum = Number(formData.age);
+
+    // 1. Pseudonym Validation
+    if (!cleanPseudonym) {
+      setError("Please enter a pseudonym / display name.");
+      if (showToast) showToast("Pseudonym is required.");
+      return;
+    }
+    if (cleanPseudonym.length < 2 || cleanPseudonym.length > 30) {
+      setError("Pseudonym must be between 2 and 30 characters.");
+      if (showToast) showToast("Pseudonym must be 2 to 30 characters.");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_\s-]+$/.test(cleanPseudonym)) {
+      setError("Pseudonym contains invalid characters. Use letters, numbers, spaces, or underscores only.");
+      if (showToast) showToast("Pseudonym contains invalid characters.");
+      return;
+    }
+
+    // 2. Age Validation (21+ Mandatory)
+    if (isNaN(ageNum) || ageNum < 21) {
+      setError("You must be 21 years or older to join Juicy Match.");
+      if (showToast) showToast("You must be 21 or older.");
+      return;
+    }
+    if (ageNum > 99) {
+      setError("Please enter a valid age between 21 and 99.");
+      if (showToast) showToast("Please enter a valid age between 21 and 99.");
+      return;
+    }
+
+    // 3. Bio Statement Validation
+    if (!cleanBio) {
+      setError("Please write a short bio or vibe statement.");
+      if (showToast) showToast("Please write a short bio statement.");
+      return;
+    }
+    if (cleanBio.length < 10) {
+      setError("Bio statement must be at least 10 characters long.");
+      if (showToast) showToast("Bio must be at least 10 characters long.");
+      return;
+    }
+    if (cleanBio.length > 300) {
+      setError("Bio statement exceeds maximum 300 characters limit.");
+      if (showToast) showToast("Bio exceeds 300 characters limit.");
+      return;
+    }
+
+    // 4. Interests / Desires Selection
+    if (!formData.interests || formData.interests.length === 0) {
+      setError("Please select at least 1 desire or interest tag.");
+      if (showToast) showToast("Please select at least 1 interest tag.");
+      return;
+    }
+
+    // 5. Accepted Genders Selection
+    if (!formData.acceptedGenders || formData.acceptedGenders.length === 0) {
+      setError("Please select at least 1 gender preference you'd like to meet.");
+      if (showToast) showToast("Please select at least 1 gender preference.");
+      return;
+    }
+
+    // 6. Age Range Discovery Boundaries
     if (formData.minAge > formData.maxAge) {
       setError("Minimum age cannot exceed maximum age.");
       if (showToast) showToast("Minimum age cannot exceed maximum age.");
@@ -115,21 +180,21 @@ export default function ProfileView() {
       formData.preferredMax > formData.maxAge ||
       formData.preferredMin > formData.preferredMax
     ) {
-      setError("Preferred age range must be within your minimum and maximum age.");
-      if (showToast) showToast("Preferred age range must be within minimum & maximum.");
+      setError("Preferred age range must be within your minimum and maximum age bounds.");
+      if (showToast) showToast("Preferred age range must be within bounds.");
       return;
     }
 
     const updated = {
       ...p,
-      pseudonym: formData.pseudonym,
+      pseudonym: cleanPseudonym,
       avatar: formData.avatar || formData.photo || "",
       photo: formData.avatar || formData.photo || "",
-      age: Number(formData.age),
+      age: ageNum,
       gender: formData.gender,
       intent: formData.intent,
       zone: formData.zone,
-      bio: formData.bio,
+      bio: cleanBio,
       interests: formData.interests,
       acceptedGenders: formData.acceptedGenders,
       minAge: Number(formData.minAge),
@@ -164,10 +229,29 @@ export default function ProfileView() {
     }
   };
 
+  const DEFAULT_INTENTS = [
+    { id: "connection", label: "Meaningful Connection" },
+    { id: "romance", label: "Dating & Romance" },
+    { id: "conversation", label: "Deep Conversation" },
+    { id: "casual", label: "Spontaneous Adventures" },
+    { id: "travel", label: "Travel Companion" },
+  ];
+
+  const DEFAULT_ZONES = [
+    { id: "central", label: "Central Metro" },
+    { id: "riverside", label: "Riverside & Downtown" },
+    { id: "arts-quarter", label: "Arts & Cultural Quarter" },
+    { id: "north", label: "North Suburbs" },
+    { id: "west", label: "West Bay" },
+  ];
+
   const masters = (group) => state.config?.masters?.[group] || [];
 
+  const intentOptions = masters("intent").length > 0 ? masters("intent") : DEFAULT_INTENTS;
+  const zoneOptions = masters("geography").length > 0 ? masters("geography") : DEFAULT_ZONES;
+
   const getMasterLabel = (group, id) => {
-    const list = masters(group);
+    const list = group === "intent" ? intentOptions : group === "geography" ? zoneOptions : masters(group);
     const item = list.find((x) => x.id === id);
     return item ? item.label : title(id);
   };
@@ -178,12 +262,12 @@ export default function ProfileView() {
   return (
     <div className="profile-container">
       <PageHead
-        kicker="Your private space"
-        heading={isEditing ? "Edit Your Profile" : "Your Profile"}
+        kicker="My Profile"
+        heading={isEditing ? "Edit Profile" : "Profile & Preferences"}
         description={
           isEditing
-            ? "Refine your story, desires, and connection boundaries."
-            : "Preview how you appear to others and manage your personal presence."
+            ? "Update your bio, location, and connection preferences."
+            : "Manage your profile details, bio, and personal preferences."
         }
         action={
           <button
@@ -392,6 +476,26 @@ export default function ProfileView() {
                MODE 2: EDIT PROFILE FORM (INTERACTIVE STEPS)
                ============================================================ */
             <form onSubmit={handleSubmit}>
+              {error && (
+                <div
+                  style={{
+                    background: "rgba(225, 29, 72, 0.15)",
+                    border: "1px solid rgba(225, 29, 72, 0.4)",
+                    borderRadius: "14px",
+                    padding: "12px 18px",
+                    marginBottom: "16px",
+                    color: "#ffffff",
+                    fontSize: "0.9rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                  }}
+                >
+                  <span style={{ fontSize: "1.2rem" }}>⚠️</span>
+                  <span>{error}</span>
+                </div>
+              )}
+
               {/* Back to Profile Top Bar */}
               <div className="profile-edit-mode-topbar">
                 <button
@@ -590,7 +694,7 @@ export default function ProfileView() {
                             setFormData({ ...formData, intent: e.target.value })
                           }
                         >
-                          {masters("intent").map((opt) => (
+                          {intentOptions.map((opt) => (
                             <option key={opt.id} value={opt.id}>
                               {opt.label}
                             </option>
@@ -617,7 +721,7 @@ export default function ProfileView() {
                             setFormData({ ...formData, zone: e.target.value })
                           }
                         >
-                          {masters("geography").map((opt) => (
+                          {zoneOptions.map((opt) => (
                             <option key={opt.id} value={opt.id}>
                               {opt.label}
                             </option>

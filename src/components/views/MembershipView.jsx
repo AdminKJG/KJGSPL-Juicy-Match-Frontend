@@ -155,13 +155,13 @@ export default function MembershipView() {
         showBack
         backTo="discover"
         backLabel="Back to Discovery"
-        kicker="A clear choice"
-        heading="Support genuine connections."
-        description="Transparent membership with unhurried matchmaking. No recurring hidden traps, no synthetic pressure."
+        kicker="Membership Plans"
+        heading="Choose your plan."
+        description="Simple, transparent plans for intentional matchmaking. Upgrade or downgrade anytime."
       />
 
-      {/* Top Filter & Currency Bar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px", flexWrap: "wrap", gap: "16px" }}>
+      {/* Top Filter & Currency Bar (One Line) */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px", width: "100%", gap: "16px" }}>
         {/* Monthly / Quarterly Toggle */}
         <div className="membership-interval-toggle">
           <button
@@ -169,7 +169,7 @@ export default function MembershipView() {
             className={`interval-toggle-btn ${billingInterval === "monthly" ? "active" : ""}`}
             onClick={() => setBillingInterval("monthly")}
           >
-            <span>Monthly Cadence</span>
+            <span>Monthly</span>
           </button>
           <button
             type="button"
@@ -212,7 +212,7 @@ export default function MembershipView() {
           <div className="membership-tiers-grid">
             {/* Free Tier */}
             <article className={`membership-tier-card ${activePlan === "free" ? "is-current" : ""}`}>
-              <div className="tier-badge-label">THE ESSENTIALS</div>
+              <div className="tier-badge-label">FREE PLAN</div>
               <h2 className="tier-name">Free</h2>
               <div className="tier-price-row">
                 <span className="tier-amount">{money(0, selectedCurrency)}</span>
@@ -244,14 +244,14 @@ export default function MembershipView() {
                 className={`button ${activePlan === "free" ? "quiet" : "primary"} tier-action-btn`}
                 disabled={activePlan === "free"}
               >
-                {activePlan === "free" ? "Current Active Tier" : "Select Free"}
+                {activePlan === "free" ? "Current Plan" : "Select Free"}
               </button>
             </article>
 
             {/* Plus Tier */}
             <article className={`membership-tier-card featured ${activePlan === "plus" ? "is-current" : ""}`}>
               <div className="tier-popular-pill">MOST POPULAR</div>
-              <div className="tier-badge-label">DEEPER ATTRACTION</div>
+              <div className="tier-badge-label">PLUS PLAN</div>
               <h2 className="tier-name">Juicy Plus</h2>
               <div className="tier-price-row">
                 <span className="tier-amount">
@@ -296,13 +296,13 @@ export default function MembershipView() {
                   )
                 }
               >
-                {activePlan === "plus" ? "Current Active Tier" : "Upgrade to Plus"}
+                {activePlan === "plus" ? "Current Plan" : "Upgrade to Plus"}
               </button>
             </article>
 
             {/* Premium Tier */}
             <article className={`membership-tier-card ${activePlan === "premium" ? "is-current" : ""}`}>
-              <div className="tier-badge-label">UNLIMITED VIP</div>
+              <div className="tier-badge-label">PREMIUM VIP</div>
               <h2 className="tier-name">Juicy Premium</h2>
               <div className="tier-price-row">
                 <span className="tier-amount">

@@ -7,6 +7,26 @@ import { useApp } from "../../context/AppContext";
 import { preferenceService } from "../../services/preferenceService";
 import { formatDate, title } from "../../utils/formatters";
 
+const formatNotificationTitle = (n) => {
+  if (n.title && n.title !== "You have an update in Juicy Match") {
+    return n.title;
+  }
+  const cat = (n.category || "").toLowerCase();
+  if (cat.includes("conn") || cat.includes("spark") || cat.includes("match")) {
+    return "New Spark & Connection Interest";
+  }
+  if (cat.includes("travel") || cat.includes("passport")) {
+    return "Passport Travel Update";
+  }
+  if (cat.includes("sec") || cat.includes("auth")) {
+    return "Security & Privacy Activity Notice";
+  }
+  if (n.body) {
+    return n.body.length > 50 ? `${n.body.slice(0, 50)}…` : n.body;
+  }
+  return "Juicy Match Member Alert";
+};
+
 export default function NotificationsView() {
   const { state, navigate, showToast } = useApp();
   const [notifications, setNotifications] = useState([]);
@@ -95,9 +115,9 @@ export default function NotificationsView() {
         showBack
         backTo="discover"
         backLabel="Back to Discovery"
-        kicker="Activity & Inbox"
-        heading="Your Notifications"
-        description="A discreet inbox for the moments, mutual sparks, and updates you chose to hear about."
+        kicker="Notifications"
+        heading="All Notifications"
+        description="Stay updated on new sparks, profile views, security alerts, and system notices."
         action={
           <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
             {unreadCount > 0 && (
@@ -205,7 +225,7 @@ export default function NotificationsView() {
                 <div className="settings-session-body">
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
                     <span className="settings-session-title" style={{ fontWeight: isUnread ? "700" : "500", margin: 0 }}>
-                      {n.title}
+                      {formatNotificationTitle(n)}
                     </span>
                     {isUnread && (
                       <span className="save-badge" style={{ background: "#f43f5e", fontSize: "0.68rem", padding: "1px 6px" }}>

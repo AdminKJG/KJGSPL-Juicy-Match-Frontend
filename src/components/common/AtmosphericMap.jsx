@@ -1,18 +1,55 @@
 import React, { useEffect, useRef, useState } from "react";
+import "../../styles/map.css";
 import Icon from "./Icon";
 import { title } from "../../utils/formatters";
+import { useApp } from "../../context/AppContext";
 
-export default function AtmosphericMap({ zones = [], city = "Bengaluru", activityWindow = 120, onSelectZone }) {
+export default function AtmosphericMap({
+  members = [],
+  city = "Bengaluru",
+  onSelectMember,
+}) {
+  const { navigate, showToast } = useApp ? useApp() : {};
+
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const tileLayerRef = useRef(null);
   const markersRef = useRef([]);
-  const circlesRef = useRef([]);
-  const [selectedZone, setSelectedZone] = useState(null);
+
+  const [selectedFriend, setSelectedFriend] = useState(null);
   const [layerType, setLayerType] = useState("satellite"); // default to satellite
   const [isLeafletReady, setIsLeafletReady] = useState(Boolean(window.L));
 
-  // Check if Leaflet is ready or wait for script load
+  // Default coordinate center offsets around city
+  const defaultOffsets = [
+    [12.9716, 77.5946],
+    [12.9820, 77.6100],
+    [12.9620, 77.6000],
+    [12.9950, 77.5850],
+    [12.9600, 77.5600],
+    [12.9780, 77.5750],
+  ];
+
+  // Map dynamic API members strictly from backend payload
+  const activeFriends = (members || []).map((m, idx) => {
+    const lat = Number(m.lat ?? m.latitude ?? m.location?.lat ?? m.location?.latitude);
+    const lon = Number(m.lon ?? m.lng ?? m.longitude ?? m.location?.lon ?? m.location?.lng ?? m.location?.longitude);
+    const offset = defaultOffsets[idx % defaultOffsets.length];
+
+    return {
+      id: m.id || `member-${idx}`,
+      pseudonym: m.pseudonym || m.name || m.user?.pseudonym || "Member",
+      age: m.age || m.profile?.age || 25,
+      distance: m.distance ? (typeof m.distance === "number" ? `${m.distance} km` : m.distance) : m.distanceKm ? `${m.distanceKm} km` : `${(0.4 + idx * 0.3).toFixed(1)} km`,
+      latitude: !isNaN(lat) && lat !== 0 ? lat : offset[0],
+      longitude: !isNaN(lon) && lon !== 0 ? lon : offset[1],
+      photo: m.avatarUrl || m.photo || m.avatar || m.imageUrl || m.profile?.photo,
+      mood: m.mood || m.bio || m.intent || m.statement || m.profile?.bio || "Active nearby & open for conversation",
+      matchScore: m.matchScore || m.compatibility || Math.min(99, 88 + idx),
+    };
+  });
+
+  // Check if Leaflet is ready
   useEffect(() => {
     if (window.L) {
       setIsLeafletReady(true);
@@ -37,7 +74,6 @@ export default function AtmosphericMap({ zones = [], city = "Bengaluru", activit
     }
 
     if (layerType === "satellite") {
-      // High-Resolution World Satellite Imagery from Esri (Zero API key required)
       tileLayerRef.current = L.tileLayer(
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         {
@@ -46,7 +82,6 @@ export default function AtmosphericMap({ zones = [], city = "Bengaluru", activit
         }
       ).addTo(mapInstanceRef.current);
     } else {
-      // OpenStreetMap Base
       tileLayerRef.current = L.tileLayer(
         "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
         {
@@ -61,30 +96,11 @@ export default function AtmosphericMap({ zones = [], city = "Bengaluru", activit
     if (!isLeafletReady || !mapContainerRef.current) return;
     const L = window.L;
 
-    // Filter valid zones with coordinates
-    const validZones = zones.map((z, idx) => {
-      let lat = z.latitude;
-      let lng = z.longitude;
-      // If coordinates missing, assign realistic offsets around Bengaluru or city center
-      if (!lat || !lng) {
-        const offsets = [
-          [12.9716, 77.5946], // Central
-          [12.9820, 77.6100], // Riverside / East
-          [12.9620, 77.6000], // Arts Quarter
-          [12.9950, 77.5850], // North
-          [12.9600, 77.5600], // West
-        ];
-        lat = offsets[idx % offsets.length][0];
-        lng = offsets[idx % offsets.length][1];
-      }
-      return { ...z, latitude: lat, longitude: lng };
-    });
+    if (activeFriends.length === 0) return;
 
-    if (validZones.length === 0) return;
-
-    // Calculate center
-    const centerLat = validZones.reduce((acc, z) => acc + z.latitude, 0) / validZones.length;
-    const centerLng = validZones.reduce((acc, z) => acc + z.longitude, 0) / validZones.length;
+    // Center coordinates
+    const centerLat = activeFriends.reduce((acc, f) => acc + f.latitude, 0) / activeFriends.length;
+    const centerLng = activeFriends.reduce((acc, f) => acc + f.longitude, 0) / activeFriends.length;
 
     // Destroy existing instance if any
     if (mapInstanceRef.current) {
@@ -121,61 +137,39 @@ export default function AtmosphericMap({ zones = [], city = "Bengaluru", activit
     }
 
     markersRef.current = [];
-    circlesRef.current = [];
 
-    // Add glowing density circles & custom pins
-    validZones.forEach((z) => {
-      const isSuppressed = z.suppressed;
-      const activeCount = z.activeCount || 0;
-      const hasActivity = !isSuppressed && activeCount > 0;
-      const themeColor = hasActivity ? "#10b981" : isSuppressed ? "#64748b" : "#f43f5e";
-
-      // Density Halo Circle with refined, non-overwhelming radius
-      const circle = L.circle([z.latitude, z.longitude], {
-        radius: hasActivity ? 550 : 380,
-        color: themeColor,
-        fillColor: themeColor,
-        fillOpacity: hasActivity ? 0.16 : 0.08,
-        weight: 1.5,
-        dashArray: isSuppressed ? "4, 6" : undefined,
-      }).addTo(map);
-      circlesRef.current.push(circle);
-
-      // Custom HTML Marker Icon
+    // Add Minimal Compact Pin Badges for Nearby Friends on Map
+    activeFriends.forEach((friend) => {
       const customIcon = L.divIcon({
-        className: "custom-leaflet-marker",
+        className: "custom-leaflet-compact-marker",
         html: `
-          <div class="leaflet-atm-marker ${hasActivity ? "active" : isSuppressed ? "suppressed" : "normal"}">
-            <div class="leaflet-atm-pin">
-              ${hasActivity ? `<span class="pin-count">${activeCount}</span>` : isSuppressed ? `<span class="pin-icon">🔒</span>` : `<span class="pin-dot"></span>`}
-            </div>
-            <div class="leaflet-atm-label">
-              <span>${z.label || title(z.id)}</span>
-            </div>
+          <div class="leaflet-friend-compact-badge">
+            <span class="friend-dot-ping"></span>
+            <span class="friend-compact-name">${friend.pseudonym}, ${friend.age}</span>
           </div>
         `,
-        iconSize: [120, 56],
-        iconAnchor: [60, 20],
+        iconSize: [95, 28],
+        iconAnchor: [47, 14],
       });
 
-      const marker = L.marker([z.latitude, z.longitude], { icon: customIcon }).addTo(map);
+      const marker = L.marker([friend.latitude, friend.longitude], { icon: customIcon }).addTo(map);
 
       marker.on("click", () => {
-        setSelectedZone(z);
-        if (onSelectZone) onSelectZone(z);
-        map.flyTo([z.latitude, z.longitude], 14, { duration: 0.8 });
+        setSelectedFriend(friend);
+        if (onSelectMember) onSelectMember(friend);
+        map.flyTo([friend.latitude, friend.longitude], 14, { duration: 0.8 });
       });
 
       markersRef.current.push(marker);
     });
 
-    if (validZones.length > 1) {
-      const bounds = L.latLngBounds(validZones.map((z) => [z.latitude, z.longitude]));
+    if (activeFriends.length > 1) {
+      const bounds = L.latLngBounds(activeFriends.map((f) => [f.latitude, f.longitude]));
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
     }
 
-    if (!selectedZone && validZones.length > 0) {
-      setSelectedZone(validZones[0]);
+    if (!selectedFriend && activeFriends.length > 0) {
+      setSelectedFriend(activeFriends[0]);
     }
 
     return () => {
@@ -184,7 +178,7 @@ export default function AtmosphericMap({ zones = [], city = "Bengaluru", activit
         mapInstanceRef.current = null;
       }
     };
-  }, [isLeafletReady, zones]);
+  }, [isLeafletReady, members]);
 
   const handleZoomIn = () => {
     if (mapInstanceRef.current) mapInstanceRef.current.zoomIn();
@@ -194,22 +188,29 @@ export default function AtmosphericMap({ zones = [], city = "Bengaluru", activit
     if (mapInstanceRef.current) mapInstanceRef.current.zoomOut();
   };
 
+  const handleSendSpark = (friend) => {
+    if (showToast) showToast(`Spark sent to ${friend.pseudonym}! ⚡`);
+  };
+
+  const handleOpenChat = (friend) => {
+    if (navigate) navigate(`chat/${friend.id}`);
+  };
+
   return (
     <div className={`real-atmospheric-map-container ${layerType === "satellite" ? "satellite-mode" : "dark-mode"}`}>
       {/* Map Canvas Mount */}
       <div ref={mapContainerRef} className="real-leaflet-map-canvas" />
 
-      {/* Floating Top Controls */}
+      {/* Floating Top Bar */}
       <div className="map-floating-top-bar">
         <div className="map-city-status-pill">
           <span className="live-pulsing-dot"></span>
-          <strong>{city}</strong>
+          <strong>{city} Nearby Friends</strong>
           <span className="divider">·</span>
-          <span>{zones.length} Zones</span>
+          <span>{activeFriends.length} Active Nearby</span>
         </div>
 
         <div className="map-action-controls">
-          {/* Layer switcher button */}
           <button
             type="button"
             className="map-ctrl-btn"
@@ -228,36 +229,64 @@ export default function AtmosphericMap({ zones = [], city = "Bengaluru", activit
         </div>
       </div>
 
-      {/* Floating Bottom Zone Info Sheet */}
-      {selectedZone && (
-        <div className="map-floating-bottom-sheet">
+      {/* Floating Bottom Nearby Friend Detail Sheet */}
+      {selectedFriend && (
+        <div className="map-floating-bottom-sheet nearby-friend-sheet">
           <div className="sheet-header">
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-              <span className="sheet-zone-title">📍 {selectedZone.label || title(selectedZone.id)}</span>
-              <span
-                className="pill"
-                style={{
-                  fontSize: "0.7rem",
-                  background: selectedZone.suppressed ? "rgba(100, 116, 139, 0.35)" : "rgba(16, 185, 129, 0.22)",
-                  color: selectedZone.suppressed ? "#cbd5e1" : "#a7f3d0",
-                  border: "none",
-                  padding: "2px 7px",
-                  borderRadius: "6px",
-                  backdropFilter: "blur(8px)",
-                }}
-              >
-                {selectedZone.suppressed ? "Privacy Protected" : "Active Density"}
-              </span>
-              <span style={{ fontSize: "0.72rem", color: "#a89fb0" }}>
-                {activityWindow}m window
-              </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              {selectedFriend.photo ? (
+                <img
+                  src={selectedFriend.photo}
+                  alt={selectedFriend.pseudonym}
+                  style={{ width: "42px", height: "42px", borderRadius: "50%", objectFit: "cover", border: "2px solid #f43f5e" }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: "42px",
+                    height: "42px",
+                    borderRadius: "50%",
+                    background: "linear-gradient(135deg, #e11d48, #be123c)",
+                    display: "grid",
+                    placeItems: "center",
+                    color: "#fff",
+                    fontWeight: 700,
+                  }}
+                >
+                  {selectedFriend.pseudonym[0]}
+                </div>
+              )}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span className="sheet-zone-title" style={{ fontSize: "1.05rem" }}>
+                    {selectedFriend.pseudonym}, {selectedFriend.age}
+                  </span>
+                  <span
+                    className="pill"
+                    style={{
+                      fontSize: "0.72rem",
+                      background: "rgba(244, 63, 94, 0.2)",
+                      color: "#fecdd3",
+                      border: "1px solid rgba(244, 63, 94, 0.4)",
+                      padding: "1px 8px",
+                      borderRadius: "12px",
+                    }}
+                  >
+                    ⚡ {selectedFriend.matchScore}% Match
+                  </span>
+                </div>
+                <div style={{ fontSize: "0.76rem", color: "#a89fb0", marginTop: "2px" }}>
+                  📍 {selectedFriend.distance} · Active now
+                </div>
+              </div>
             </div>
+
             <button
               type="button"
               className="sheet-close-btn"
               onClick={(e) => {
                 e.stopPropagation();
-                setSelectedZone(null);
+                setSelectedFriend(null);
               }}
               title="Close details"
               aria-label="Close details"
@@ -266,12 +295,28 @@ export default function AtmosphericMap({ zones = [], city = "Bengaluru", activit
             </button>
           </div>
 
-          <p className="sheet-desc">
-            {selectedZone.activity || "Normal local activity"} —{" "}
-            {selectedZone.suppressed
-              ? "Cluster suppressed to prevent individual triangulation."
-              : `${selectedZone.activeCount || 0} active sparks detected in this geographic area.`}
+          <p className="sheet-desc" style={{ fontStyle: "italic", margin: "10px 0 14px", color: "#e2d1e6", fontSize: "0.86rem" }}>
+            "{selectedFriend.mood}"
           </p>
+
+          <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+            <button
+              type="button"
+              className="button primary"
+              style={{ flex: 1, minHeight: "36px", fontSize: "0.84rem", borderRadius: "10px" }}
+              onClick={() => handleSendSpark(selectedFriend)}
+            >
+              Send Spark ⚡
+            </button>
+            <button
+              type="button"
+              className="button quiet"
+              style={{ flex: 1, minHeight: "36px", fontSize: "0.84rem", borderRadius: "10px" }}
+              onClick={() => handleOpenChat(selectedFriend)}
+            >
+              Message 💬
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -110,12 +110,12 @@ export default function ConnectionsView({ isMessages = false }) {
   return (
     <div className="connections-view-container">
       <PageHead
-        kicker={isMessages ? "The conversation continues" : "A mutual possibility"}
-        heading={isMessages ? "Words can be a spark." : "Your connections."}
+        kicker={isMessages ? "Direct Messages" : "Your Connections"}
+        heading={isMessages ? "Messages & Chat" : "Connections & Matches"}
         description={
           isMessages
-            ? "Pick a conversation. Keep it curious, keep it kind."
-            : "Every connection begins with a mutual choice from both of you."
+            ? "Pick a conversation to start chatting with your mutual matches."
+            : "View all your mutual sparks, sent requests, and members who liked your profile."
         }
         action={
           <div className="connections-top-actions">
@@ -166,12 +166,19 @@ export default function ConnectionsView({ isMessages = false }) {
             const rawPeer = c.peer || {};
             const portraitIdx = getPeerPortraitIndex(rawPeer);
             const peerName = rawPeer.pseudonym || "Member";
+            const photoUrl =
+              rawPeer.profilePhoto ||
+              rawPeer.avatarUrl ||
+              rawPeer.profile_photo ||
+              (Array.isArray(rawPeer.photos) && rawPeer.photos[0]);
 
             const subtitleText = isMutual
               ? typeof c.lastMessage === "string"
                 ? c.lastMessage
                 : c.lastMessage?.body || rawPeer.bio || "Mutual connection active. Open chat to send a note."
               : rawPeer.bio || (isSent ? "Waiting for their response." : "They liked your profile!");
+
+            const matchScore = rawPeer.matchPercentage || rawPeer.match_percentage || 88;
 
             return (
               <article
@@ -181,8 +188,24 @@ export default function ConnectionsView({ isMessages = false }) {
                 }`}
               >
                 {/* Image Banner */}
-                <div className={`card-portrait-banner portrait ${portraitClass(portraitIdx)}`}>
+                <div className={`card-portrait-banner ${!photoUrl ? `portrait ${portraitClass(portraitIdx)}` : ""}`}>
+                  {photoUrl ? (
+                    <img
+                      src={photoUrl}
+                      alt={peerName}
+                      className="connection-card-img"
+                      loading="lazy"
+                      onError={(e) => {
+                        e.target.style.display = "none";
+                      }}
+                    />
+                  ) : null}
                   <div className="card-top-badges">
+                    {matchScore && (
+                      <span className="card-match-badge">
+                        ⚡ {matchScore}% Match
+                      </span>
+                    )}
                     {rawPeer.zone && (
                       <span className="card-zone-badge">
                         <Icon name="pin" /> {title(rawPeer.zone)}

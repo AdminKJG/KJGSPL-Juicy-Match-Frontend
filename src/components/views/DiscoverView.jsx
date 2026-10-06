@@ -68,21 +68,81 @@ export default function DiscoverView() {
     try {
       const res = await discoverService.getDiscoveryFeed();
       const blocked = blockService.getBlockedMemberIds();
-      if (res?.items) {
-        setFeedItems(res.items.filter((p) => !blocked.includes(String(p.id))));
+
+      const rawItems = res?.items || res?.profiles || res?.data || res?.recommendations || res || [];
+      const itemsList = Array.isArray(rawItems) ? rawItems : [];
+
+      const normalized = itemsList
+        .map((p) => ({
+          id: p.id || p.memberId || p.userId || p._id,
+          pseudonym: p.pseudonym || p.name || p.username || p.firstName || "Member",
+          age: p.age || p.userAge || 25,
+          zone: p.zone || p.city || p.location || p.region || "Nearby",
+          band: p.band || p.tier || p.membershipTier || p.category || "A possible spark",
+          matchPercentage:
+            p.matchPercentage ||
+            p.match_percentage ||
+            p.chemistry?.lower ||
+            p.chemistryScore ||
+            p.compatibilityScore ||
+            85,
+          bio:
+            p.bio ||
+            p.about ||
+            p.description ||
+            p.tagline ||
+            "There’s a story here. Start with a hello.",
+          interests: Array.isArray(p.interests)
+            ? p.interests
+            : Array.isArray(p.tags)
+            ? p.tags
+            : p.interests
+            ? [p.interests]
+            : [],
+          reasons: Array.isArray(p.reasons)
+            ? p.reasons
+            : Array.isArray(p.sharedInterests)
+            ? p.sharedInterests
+            : p.reason
+            ? [p.reason]
+            : [],
+          photos:
+            Array.isArray(p.photos) && p.photos.length > 0
+              ? p.photos
+              : [
+                  p.profilePhoto ||
+                    p.profile_photo ||
+                    p.avatarUrl ||
+                    p.avatar ||
+                    p.image,
+                ].filter(Boolean),
+          swipe: p.swipe || p.swipeAction || p.userAction || null,
+          isBot: Boolean(p.isBot || p.isDemo),
+          portrait: p.portrait || p.avatarClass || "p0",
+        }))
+        .filter((p) => p.id && !blocked.includes(String(p.id)));
+
+      if (normalized.length > 0) {
+        setFeedItems(normalized);
+      } else {
+        const localProfiles = state.discoverProfiles || [];
+        setFeedItems(localProfiles.filter((p) => !blocked.includes(String(p.id))));
       }
-      if (res?.filters) {
+
+      if (res?.filters && Array.isArray(res.filters)) {
         setBackendFilters(res.filters);
         setAvailableFilters(["all", "saved", ...res.filters]);
       }
       setDiscoverMeta({
-        issued: res?.issued ?? res?.items?.length ?? 0,
+        issued: res?.issued ?? normalized.length ?? feedItems.length,
         dailyCap: res?.dailyCap ?? 10,
         resetAt: res?.resetAt ?? null,
       });
     } catch (err) {
-      console.warn("Discover feed load error:", err.message);
-      setFeedItems([]);
+      console.warn("Discover feed API load warning:", err.message);
+      const localProfiles = state.discoverProfiles || [];
+      const blocked = blockService.getBlockedMemberIds();
+      setFeedItems(localProfiles.filter((p) => !blocked.includes(String(p.id))));
     } finally {
       setLoading(false);
     }
@@ -285,11 +345,9 @@ export default function DiscoverView() {
   return (
     <>
       <PageHead
-        kicker="Your next chapter"
-        heading="Follow the feeling."
-        description={`${filteredProfiles.length} introductions revealed today${
-          discoverMeta.dailyCap ? ` · Daily cap: ${discoverMeta.dailyCap}` : ""
-        }. A little curiosity goes a long way.`}
+        kicker="Curated Matchmaking"
+        heading="Discover Sparks"
+        description="Explore members matching your profile and desires. Connect through mutual sparks and intentional conversations."
         action={
           <div className="discover-header-actions">
             <button
@@ -527,7 +585,6 @@ export default function DiscoverView() {
               </blockquote>
             </div>
 
-
             {/* Alignment / Shared Chemistry Card */}
             <div className="discover-card-panel align-panel">
               <div className="discover-panel-kicker">
@@ -535,16 +592,26 @@ export default function DiscoverView() {
                 <span>The Little Things That Align</span>
               </div>
               <div className="align-reasons-list">
-                {currentProfile.reasons?.map((reason, idx) => (
-                  <div key={idx} className="align-reason-item">
+                {currentProfile.reasons && currentProfile.reasons.length > 0 ? (
+                  currentProfile.reasons.map((reason, idx) => (
+                    <div key={idx} className="align-reason-item">
+                      <span className="align-icon-wrap">
+                        <Icon name="sparkle" />
+                      </span>
+                      <span className="align-text">{reason}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="align-reason-item">
                     <span className="align-icon-wrap">
-                      <Icon name="discover" />
+                      <Icon name="sparkle" />
                     </span>
-                    <span className="align-text">{reason}</span>
+                    <span className="align-text">
+                      Shared interests: {(currentProfile.interests || ["music", "travel", "art"]).slice(0, 4).join(", ")}
+                    </span>
                   </div>
-                )) || <p className="align-text" style={{ fontStyle: "italic", margin: 0 }}>Explore at your own pace.</p>}
+                )}
               </div>
-
             </div>
 
             {/* Boundaries & Safety Card */}

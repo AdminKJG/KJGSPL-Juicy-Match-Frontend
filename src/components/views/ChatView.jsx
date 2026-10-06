@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import "../../styles/chat.css";
 import Icon from "../common/Icon";
 import Loader from "../common/Loader";
 import { useApp } from "../../context/AppContext";
@@ -53,23 +54,31 @@ const getLastMessageSnippet = (msg) => {
 
 const blobUrlCache = new Map();
 
-function AuthImage({ src, alt, onClick, className }) {
-  const isDirect = Boolean(src && (src.startsWith("data:") || src.startsWith("blob:")));
+const DEMO_FALLBACK_IMAGES = [
+  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80",
+  "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=600&q=80",
+  "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=600&q=80",
+  "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=80",
+];
+
+function AuthImage({ src, alt, onClick, className, style }) {
+  const isDirect = Boolean(src && (src.startsWith("data:") || src.startsWith("blob:") || src.startsWith("http")));
+  const [fallbackIndex] = useState(() => Math.floor(Math.random() * DEMO_FALLBACK_IMAGES.length));
   const [imgSrc, setImgSrc] = useState(() => {
-    if (!src) return null;
+    if (!src) return DEMO_FALLBACK_IMAGES[fallbackIndex];
     if (isDirect) return src;
     return blobUrlCache.get(src) || null;
   });
   const [hasError, setHasError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (!src) {
-      setHasError(true);
+      setImgSrc(DEMO_FALLBACK_IMAGES[fallbackIndex]);
+      setHasError(false);
       return;
     }
 
-    if (src.startsWith("data:") || src.startsWith("blob:")) {
+    if (src.startsWith("data:") || src.startsWith("blob:") || src.startsWith("http")) {
       setImgSrc(src);
       setHasError(false);
       return;
@@ -84,93 +93,46 @@ function AuthImage({ src, alt, onClick, className }) {
     let active = true;
     mediaService.fetchMediaBlobUrl(src).then((blobUrl) => {
       if (!active) return;
-      if (blobUrl && (blobUrl.startsWith("blob:") || blobUrl.startsWith("data:"))) {
+      if (blobUrl && (blobUrl.startsWith("blob:") || blobUrl.startsWith("data:") || blobUrl.startsWith("http"))) {
         blobUrlCache.set(src, blobUrl);
         setImgSrc(blobUrl);
         setHasError(false);
       } else {
-        setHasError(true);
+        setImgSrc(DEMO_FALLBACK_IMAGES[fallbackIndex]);
+        setHasError(false);
       }
     }).catch(() => {
       if (!active) return;
-      setHasError(true);
+      setImgSrc(DEMO_FALLBACK_IMAGES[fallbackIndex]);
+      setHasError(false);
     });
 
     return () => {
       active = false;
     };
-  }, [src, retryCount]);
+  }, [src, fallbackIndex]);
 
-  if (!src || hasError) {
-    return (
-      <div
-        className="wa-bubble-media-placeholder"
-        onClick={(e) => {
-          e.stopPropagation();
-          setHasError(false);
-          setRetryCount((c) => c + 1);
-        }}
-        style={{
-          width: "100%",
-          minWidth: "160px",
-          minHeight: "120px",
-          maxWidth: "280px",
-          borderRadius: "10px",
-          background: "rgba(255,255,255,0.06)",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "rgba(255,255,255,0.5)",
-          gap: "4px",
-          cursor: "pointer",
-        }}
-        title="Tap to reload photo"
-      >
-        <span style={{ fontSize: "1.4rem" }}>🖼️</span>
-        <span style={{ fontSize: "0.75rem", opacity: 0.8 }}>Photo</span>
-      </div>
-    );
-  }
-
-  if (!imgSrc) {
-    return (
-      <div
-        className="wa-bubble-media-placeholder"
-        style={{
-          width: "100%",
-          minWidth: "160px",
-          minHeight: "120px",
-          maxWidth: "280px",
-          borderRadius: "10px",
-          background: "rgba(255,255,255,0.06)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <span style={{ fontSize: "1.2rem", opacity: 0.5 }}>⏳</span>
-      </div>
-    );
-  }
+  const displaySrc = (hasError || !imgSrc) ? DEMO_FALLBACK_IMAGES[fallbackIndex] : imgSrc;
 
   return (
     <img
-      src={imgSrc}
+      src={displaySrc}
       alt={alt || "Shared photo"}
       className={className}
       loading="lazy"
       onClick={onClick}
-      style={{ cursor: onClick ? "zoom-in" : "default" }}
+      style={{
+        cursor: onClick ? "zoom-in" : "default",
+        width: "100%",
+        maxWidth: "260px",
+        maxHeight: "240px",
+        borderRadius: "14px",
+        objectFit: "cover",
+        display: "block",
+        ...style,
+      }}
       onError={() => {
-        mediaService.fetchMediaBlobUrl(src).then((blobUrl) => {
-          if (blobUrl && blobUrl !== imgSrc && (blobUrl.startsWith("blob:") || blobUrl.startsWith("data:"))) {
-            blobUrlCache.set(src, blobUrl);
-            setImgSrc(blobUrl);
-          } else {
-            setHasError(true);
-          }
-        }).catch(() => setHasError(true));
+        setHasError(true);
       }}
     />
   );

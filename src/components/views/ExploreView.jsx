@@ -572,109 +572,21 @@ export default function ExploreView() {
       {activeTab === "areas" && (
         <section className="explore-section-areas animate-fadeIn">
           {/* Panoramic Cartographic Map */}
-          <div style={{ width: "100%", marginBottom: "28px" }}>
+          <div style={{ width: "100%", marginBottom: "0px" }}>
             {loadingMap ? (
-              <div className="panel" style={{ height: "460px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "20px" }}>
+              <div className="panel" style={{ height: "600px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "20px" }}>
                 <Loader text="Loading city map…" />
               </div>
             ) : (
-              <div style={{ height: "460px", width: "100%", borderRadius: "20px", overflow: "hidden", border: "1px solid rgba(244, 63, 94, 0.25)" }}>
+              <div style={{ height: "600px", width: "100%", borderRadius: "20px", overflow: "hidden", border: "1px solid rgba(244, 63, 94, 0.25)" }}>
                 <AtmosphericMap
+                  members={liveSparks}
                   zones={zones}
                   city={cityLabel}
-                  activityWindow={mapData?.activityWindowMinutes || 120}
-                  onSelectZone={(z) => setFocusedZone(z)}
+                  onSelectMember={(m) => setFocusedZone(m)}
                 />
               </div>
             )}
-          </div>
-
-          {/* Neighborhood Areas Grid */}
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <div>
-                <div className="eyebrow">METROPOLITAN REGIONS · {cityLabel.toUpperCase()}</div>
-                <h2 style={{ fontSize: "1.35rem", margin: "4px 0 0", color: "#ffffff" }}>
-                  Neighborhoods
-                </h2>
-              </div>
-              <span style={{ fontSize: "0.84rem", color: "#bfaabf" }}>
-                Privacy-protected clustering
-              </span>
-            </div>
-
-            <div className="explore-areas-grid">
-              {zones.map((zone) => {
-                const isSuppressed = zone.suppressed;
-                const activeCount = zone.activeCount || 0;
-                const isFocused = focusedZone?.id === zone.id;
-
-                return (
-                  <article
-                    key={zone.id}
-                    className="explore-area-card"
-                    style={{
-                      borderColor: isFocused ? "#f43f5e" : undefined,
-                      boxShadow: isFocused ? "0 0 20px rgba(244, 63, 94, 0.3)" : undefined,
-                    }}
-                  >
-                    <div>
-                      <div className="explore-area-header">
-                        <div>
-                          <h3 className="explore-area-title">📍 {zone.label || title(zone.id)}</h3>
-                          <span
-                            className="pill"
-                            style={{
-                              fontSize: "0.74rem",
-                              background: isSuppressed ? "rgba(100, 116, 139, 0.3)" : "rgba(16, 185, 129, 0.2)",
-                              color: isSuppressed ? "#cbd5e1" : "#a7f3d0",
-                            }}
-                          >
-                            {isSuppressed ? "🔒 Privacy Protected" : `● ${activeCount} active sparks`}
-                          </span>
-                        </div>
-                      </div>
-
-                      <p style={{ margin: "12px 0 8px", fontSize: "0.88rem", color: "var(--cream)", lineHeight: 1.45 }}>
-                        {zone.vibe || zone.activity || "Vibrant local atmosphere."}
-                      </p>
-
-                      {zone.tags && (
-                        <div className="explore-area-tags">
-                          {zone.tags.map((t) => (
-                            <span key={t} className="explore-area-tag">
-                              {t}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      className="button quiet"
-                      style={{
-                        width: "100%",
-                        minHeight: "38px",
-                        fontSize: "0.84rem",
-                        marginTop: "10px",
-                        display: "flex",
-                        justifyContent: "center",
-                        gap: "6px",
-                      }}
-                      onClick={() => {
-                        setFocusedZone(zone);
-                        window.scrollTo({ top: 120, behavior: "smooth" });
-                        showToast(`Focused on ${zone.label || zone.id}`);
-                      }}
-                    >
-                      <Icon name="compass" />
-                      <span>View on Map</span>
-                    </button>
-                  </article>
-                );
-              })}
-            </div>
           </div>
         </section>
       )}

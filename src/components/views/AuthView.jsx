@@ -94,8 +94,49 @@ export default function AuthView({ isSignup = false }) {
     e.preventDefault();
     setError("");
 
+    const cleanEmail = email.trim();
+    const cleanPseudonym = pseudonym.trim();
+    const ageNum = Number(age);
+
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setError("Please enter a valid email address.");
+      if (showToast) showToast("Please enter a valid email address.");
+      return;
+    }
+
+    if (!password || password.length < 8) {
+      setError("Password must be at least 8 characters long.");
+      if (showToast) showToast("Password must be at least 8 characters.");
+      return;
+    }
+
+    if (!cleanPseudonym || cleanPseudonym.length < 2 || cleanPseudonym.length > 30) {
+      setError("Pseudonym must be between 2 and 30 characters.");
+      if (showToast) showToast("Pseudonym must be 2 to 30 characters.");
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_\s-]+$/.test(cleanPseudonym)) {
+      setError("Pseudonym contains invalid characters. Use letters, numbers, spaces, or underscores only.");
+      if (showToast) showToast("Pseudonym contains invalid characters.");
+      return;
+    }
+
+    if (!age || isNaN(ageNum) || ageNum < 21) {
+      setError("You must be 21 years or older to register on Juicy Match.");
+      if (showToast) showToast("You must be 21 or older to register.");
+      return;
+    }
+
+    if (ageNum > 99) {
+      setError("Please enter a valid age between 21 and 99.");
+      if (showToast) showToast("Please enter a valid age between 21 and 99.");
+      return;
+    }
+
     if (!agreeTerms) {
-      setError("Please accept the terms of service and privacy notice.");
+      setError("Please accept the terms of service and privacy notice to continue.");
+      if (showToast) showToast("Please accept the terms of service.");
       return;
     }
 
@@ -107,10 +148,10 @@ export default function AuthView({ isSignup = false }) {
     setLoading(true);
     try {
       const res = await authService.register({
-        email,
+        email: cleanEmail,
         password,
-        pseudonym,
-        age,
+        pseudonym: cleanPseudonym,
+        age: ageNum,
         policyIds: policyIdsToSend,
       });
 
@@ -119,7 +160,7 @@ export default function AuthView({ isSignup = false }) {
         showToast("Verification code sent to your email.");
       } else {
         showToast("Your private profile has been created.");
-        onLoginSuccess(res.account, res.token);
+        onLoginSuccess(res.account || res.user, res.token || res.accessToken);
         navigate("profile");
       }
     } catch (err) {

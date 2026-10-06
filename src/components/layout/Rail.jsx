@@ -20,14 +20,28 @@ export default function Rail() {
     return localStorage.getItem("jm_theme") || "dark";
   });
 
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    return localStorage.getItem("jm_rail_collapsed") === "true";
+  });
+
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("jm_theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    document.documentElement.setAttribute("data-rail-collapsed", isCollapsed ? "true" : "false");
+    localStorage.setItem("jm_rail_collapsed", isCollapsed ? "true" : "false");
+  }, [isCollapsed]);
+
   const toggleTheme = (e) => {
     e.stopPropagation();
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  };
+
+  const toggleCollapse = (e) => {
+    e.stopPropagation();
+    setIsCollapsed((prev) => !prev);
   };
 
   const currentTab = activeRoute.split("/")[0];
@@ -35,10 +49,10 @@ export default function Rail() {
     currentTab === "chat"
       ? "messages"
       : ["passport", "events", "desires"].includes(currentTab)
-      ? "explore"
-      : ["privacy", "album", "membership"].includes(currentTab)
-      ? "profile"
-      : currentTab;
+        ? "explore"
+        : ["privacy", "album", "membership"].includes(currentTab)
+          ? "profile"
+          : currentTab;
 
   const pseudonym = state?.me?.profile?.pseudonym || "Member";
   const planRaw = (state?.entitlement?.plan || "free").toLowerCase();
@@ -51,22 +65,34 @@ export default function Rail() {
   const planSubtitle = isFree
     ? "Upgrade to Plus or Premium"
     : isPlus
-    ? "Upgrade to Premium for VIP perks"
-    : "All privileges active";
+      ? "Upgrade to Premium for VIP perks"
+      : "All privileges active";
 
   return (
-    <aside className="rail">
-      <a
-        className="brand"
-        href="/discover"
-        onClick={(e) => {
-          e.preventDefault();
-          navigate("discover");
-        }}
-      >
-        <img src="/assets/logo.jpg" alt="Juicy Match" />
-        <span>Juicy Match</span>
-      </a>
+    <aside className={`rail ${isCollapsed ? "collapsed" : ""}`}>
+      <div className="brand-header-row">
+        <a
+          className="brand"
+          href="/discover"
+          onClick={(e) => {
+            e.preventDefault();
+            navigate("discover");
+          }}
+          title="Juicy Match Home"
+        >
+          <img src="/assets/logo.jpg" alt="Juicy Match" className="brand-logo-only" />
+          {!isCollapsed && <span className="brand-title">Juicy Match</span>}
+        </a>
+        <button
+          type="button"
+          className="rail-collapse-btn"
+          onClick={toggleCollapse}
+          title={isCollapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar"}
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <Icon name="sidebar" />
+        </button>
+      </div>
 
       <nav aria-label="Main navigation" className="nav-menu">
         {mainNav.map((item) => {
@@ -78,11 +104,12 @@ export default function Rail() {
               className={`nav-link ${isActive ? "active" : ""}`}
               onClick={() => navigate(item.id)}
               aria-current={isActive ? "page" : undefined}
+              title={isCollapsed ? item.label : undefined}
             >
               <span className="nav-icon-wrap">
                 <Icon name={item.icon} />
               </span>
-              <span className="nav-label">{item.label}</span>
+              {!isCollapsed && <span className="nav-label">{item.label}</span>}
             </button>
           );
         })}
@@ -96,15 +123,16 @@ export default function Rail() {
           role="button"
           tabIndex="0"
           aria-label="Membership plans"
+          title={isCollapsed ? planName : undefined}
         >
           <div className="plan-card-header">
             <span className="plan-badge">
-              <span className="spark-symbol">✦</span> {planBadge}
+              <span className="spark-symbol">✦</span> {isCollapsed ? "VIP" : planBadge}
             </span>
-            <span className="plan-arrow">↗</span>
+            {!isCollapsed && <span className="plan-arrow">↗</span>}
           </div>
-          <div className="plan-title">{planName}</div>
-          <div className="plan-subtitle">{planSubtitle}</div>
+          {!isCollapsed && <div className="plan-title">{planName}</div>}
+          {!isCollapsed && <div className="plan-subtitle">{planSubtitle}</div>}
         </div>
 
         {/* Member Footer */}
@@ -113,22 +141,16 @@ export default function Rail() {
           onClick={() => navigate("profile")}
           role="button"
           tabIndex="0"
+          title={isCollapsed ? pseudonym : undefined}
         >
           <Avatar profile={state?.me?.profile} className="member-avatar" />
-          <div className="member-info">
-            <div className="member-name">{pseudonym}</div>
-            <div className="member-desc">Your private space</div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <button
-              type="button"
-              className="member-theme-btn"
-              onClick={toggleTheme}
-              aria-label={theme === "dark" ? "Switch to Light mode" : "Switch to Dark mode"}
-              title={theme === "dark" ? "Switch to Light mode" : "Switch to Dark mode"}
-            >
-              <Icon name={theme === "dark" ? "sun" : "moon"} />
-            </button>
+          {!isCollapsed && (
+            <div className="member-info">
+              <div className="member-name">{pseudonym}</div>
+              <div className="member-desc">Your private space</div>
+            </div>
+          )}
+          <div className="member-footer-actions">
             <button
               type="button"
               className="member-theme-btn"

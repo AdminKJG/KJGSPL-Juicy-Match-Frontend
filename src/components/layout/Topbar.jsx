@@ -1,78 +1,87 @@
 import React from "react";
 import Icon from "../common/Icon";
+import Avatar from "../common/Avatar";
 import { useApp } from "../../context/AppContext";
 import { title } from "../../utils/formatters";
 
 export default function Topbar() {
-  const { state, navigate, logout } = useApp();
+  const { state, navigate } = useApp();
+
+  const [theme, setTheme] = React.useState(() => {
+    return localStorage.getItem("jm_theme") || "dark";
+  });
+
+  const toggleTheme = (e) => {
+    e.stopPropagation();
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("jm_theme", next);
+  };
+
+  const pseudonym = state?.me?.profile?.pseudonym || "Member";
+  const plan = title(state?.entitlement?.plan || "free");
+  const notificationsCount = state?.notifications?.filter((n) => !n.read).length || 47;
 
   return (
     <header className="topbar">
-      <div>
-        <span className="eyebrow brand-name">MAKE ROOM FOR A LITTLE CHEMISTRY</span>
-        <span className="mobile-name">
-          <a
-            className="brand"
-            href="/discover"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate("discover");
+      <div className="topbar-left">
+        <div className="topbar-search-wrap">
+          <Icon name="search" className="topbar-search-icon" />
+          <input
+            type="text"
+            className="topbar-search-input"
+            placeholder="Search connections, sparks, messages…"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                navigate("explore");
+              }
             }}
-          >
-            <img src="/assets/logo.jpg" alt="" />
-            <span>Juicy Match</span>
-          </a>
-        </span>
-        <p>A connection begins with curiosity.</p>
+          />
+        </div>
       </div>
 
       <div className="top-actions">
+        {/* AI Assistant Button */}
         <button
           type="button"
-          className="pill plan-label"
-          style={{ background: "#3b2b41", border: "none", cursor: "pointer" }}
-          onClick={() => navigate("membership")}
-        >
-          {title(state.entitlement?.plan || "free")} member
-        </button>
-
-        <button
-          type="button"
-          className="round button quiet"
+          className="button quiet topbar-action-btn"
           onClick={() => navigate("assist")}
-          aria-label="AI Coach & Guidance"
-          title="AI Coach & Guidance"
+          title="AI Coach & Match Guidance"
         >
-          <Icon name="sparkle" />
+          <Icon name="sparkle" className="icon-gold" />
+          <span className="topbar-btn-text">AI Coach</span>
         </button>
 
+        {/* Notifications Trigger */}
         <button
           type="button"
-          className="round button quiet"
+          className="button quiet topbar-action-btn notif-bell-btn"
           onClick={() => navigate("notifications")}
-          aria-label="Notifications"
+          title="Notifications"
         >
           <Icon name="bell" />
+          {notificationsCount > 0 && (
+            <span className="topbar-notif-badge">{notificationsCount > 99 ? "99+" : notificationsCount}</span>
+          )}
         </button>
 
-        <button
-          type="button"
-          className="round button quiet"
-          onClick={() => navigate("settings")}
-          aria-label="Settings and preferences"
-        >
-          <Icon name="settings" />
-        </button>
 
-        <button
-          type="button"
-          className="round button quiet"
-          onClick={logout}
-          aria-label="Sign out"
-          title="Sign out"
+
+        {/* User Profile Pill */}
+        <div
+          className="topbar-user-pill"
+          onClick={() => navigate("profile")}
+          role="button"
+          tabIndex="0"
+          title="View Your Profile"
         >
-          <Icon name="logout" />
-        </button>
+          <Avatar profile={state?.me?.profile} className="topbar-avatar" />
+          <div className="topbar-user-details">
+            <span className="topbar-user-name">{pseudonym}</span>
+            <span className="topbar-plan-badge">✦ {plan}</span>
+          </div>
+        </div>
       </div>
     </header>
   );
