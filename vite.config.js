@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: process.env.PORT ? parseInt(process.env.PORT) : 4000,
+      allowedHosts: true,
       open: false,
       proxy: {
         "/api": {
@@ -24,6 +25,7 @@ export default defineConfig(({ mode }) => {
     preview: {
       host: "0.0.0.0",
       port: process.env.PORT ? parseInt(process.env.PORT) : 4000,
+      allowedHosts: true,
     },
   };
 });
