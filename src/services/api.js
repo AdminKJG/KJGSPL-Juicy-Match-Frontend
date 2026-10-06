@@ -173,9 +173,10 @@ export async function request(path, options = {}) {
 
   if (!response.ok) {
     const errorMsg =
-      data.error ||
-      data.message ||
-      (Array.isArray(data.errors) ? data.errors.join(", ") : "Request failed.");
+      (typeof data?.error === "string" ? data.error : data?.error?.message) ||
+      (typeof data?.message === "string" ? data.message : null) ||
+      (Array.isArray(data?.errors) ? data.errors.map(e => e.msg || e.message || e).join(", ") : null) ||
+      "Request failed with status " + response.status;
     const err = new Error(errorMsg);
     err.status = response.status;
     err.data = data;

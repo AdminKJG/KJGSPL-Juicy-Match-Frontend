@@ -10,6 +10,7 @@ export default function AuthView({ isSignup = false }) {
   const [tab, setTab] = useState(isSignup ? "signup" : "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [pseudonym, setPseudonym] = useState("");
   const [age, setAge] = useState("");
   const [agreeTerms, setAgreeTerms] = useState(false);
@@ -83,7 +84,9 @@ export default function AuthView({ isSignup = false }) {
         setError("Please verify your email address to continue.");
         showToast("Email verification required.");
       } else {
-        setError(errorText || "Invalid email or password.");
+        const msg = errorText || "Invalid email or password.";
+        setError(msg);
+        showToast(msg);
       }
     } finally {
       setLoading(false);
@@ -164,7 +167,9 @@ export default function AuthView({ isSignup = false }) {
         navigate("profile");
       }
     } catch (err) {
-      setError(err.message || "Registration failed. Please review your input.");
+      const msg = err.message || "Registration failed. Please review your input.";
+      setError(msg);
+      showToast(msg);
     } finally {
       setLoading(false);
     }
@@ -181,7 +186,9 @@ export default function AuthView({ isSignup = false }) {
       onLoginSuccess(res.account, res.token);
       navigate("profile");
     } catch (err) {
-      setError(err.message || "Invalid or expired verification code.");
+      const msg = err.message || "Invalid or expired verification code.";
+      setError(msg);
+      showToast(msg);
     } finally {
       setLoading(false);
     }
@@ -259,12 +266,13 @@ export default function AuthView({ isSignup = false }) {
               src="/assets/logo.jpg"
               alt="Juicy Match"
               style={{
-                width: "88px",
-                height: "88px",
-                borderRadius: "24px",
-                boxShadow: "0 12px 36px rgba(0,0,0,0.5)",
-                border: "1px solid rgba(255,255,255,0.14)",
+                width: "150px",
+                height: "150px",
+                borderRadius: "36px",
+                boxShadow: "0 16px 48px rgba(230, 0, 103, 0.35), 0 8px 24px rgba(0, 0, 0, 0.6)",
+                border: "1.5px solid rgba(255, 255, 255, 0.2)",
                 objectFit: "cover",
+                transition: "transform 0.3s ease, box-shadow 0.3s ease",
               }}
             />
           </a>
@@ -360,15 +368,15 @@ export default function AuthView({ isSignup = false }) {
                   setError("");
                 }}
               >
-                Begin your story
+                Create account
               </button>
             </div>
 
-            <h2>{tab === "signup" ? "Make it your own." : "Welcome back."}</h2>
+            <h2>{tab === "signup" ? "Create your profile." : "Sign in"}</h2>
             <p>
               {tab === "signup"
-                ? "Start privately. Decide what to share, and when."
-                : "Your next chapter is waiting."}
+                ? "Join Juicy Match privately. Connect at your own pace."
+                : "Enter your details to access your matches and account."}
             </p>
 
             <form onSubmit={tab === "signup" ? handleRegister : handleLogin} autoComplete="off">
@@ -438,15 +446,41 @@ export default function AuthView({ isSignup = false }) {
                     </button>
                   )}
                 </div>
-                <input
-                  type="password"
-                  required
-                  minLength={tab === "signup" ? 8 : 4}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  autoComplete={tab === "signup" ? "new-password" : "current-password"}
-                />
+                <div style={{ position: "relative", width: "100%" }}>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    minLength={tab === "signup" ? 8 : 4}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete={tab === "signup" ? "new-password" : "current-password"}
+                    style={{ paddingRight: "44px" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    title={showPassword ? "Hide password" : "Show password"}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    style={{
+                      position: "absolute",
+                      right: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      padding: "4px",
+                      cursor: "pointer",
+                      color: "var(--muted)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      zIndex: 2,
+                    }}
+                  >
+                    <Icon name={showPassword ? "eyeOff" : "eye"} />
+                  </button>
+                </div>
               </label>
 
               {tab === "signup" && (
@@ -490,7 +524,7 @@ export default function AuthView({ isSignup = false }) {
                   "Processing…"
                 ) : (
                   <>
-                    {tab === "signup" ? "Create my private profile" : "Step inside"}{" "}
+                    {tab === "signup" ? "Create account" : "Sign in"}{" "}
                     <Icon name="arrow" />
                   </>
                 )}

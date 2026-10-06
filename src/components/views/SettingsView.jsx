@@ -66,6 +66,8 @@ export default function SettingsView() {
   // Security & Password state
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   // Sessions state with instant fallback so user is NEVER stuck on loading
@@ -793,15 +795,39 @@ export default function SettingsView() {
                 <label className="profile-field-label">
                   <span>Current Password</span>
                 </label>
-                <div className="profile-input-wrap">
+                <div className="profile-input-wrap" style={{ position: "relative" }}>
                   <input
-                    type="password"
+                    type={showCurrentPassword ? "text" : "password"}
                     className="profile-input"
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     placeholder="••••••••••••"
                     autoComplete="current-password"
+                    style={{ paddingRight: "44px" }}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPassword((prev) => !prev)}
+                    title={showCurrentPassword ? "Hide password" : "Show password"}
+                    aria-label={showCurrentPassword ? "Hide password" : "Show password"}
+                    style={{
+                      position: "absolute",
+                      right: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      padding: "4px",
+                      cursor: "pointer",
+                      color: "var(--muted)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      zIndex: 2,
+                    }}
+                  >
+                    <Icon name={showCurrentPassword ? "eyeOff" : "eye"} />
+                  </button>
                 </div>
               </div>
 
@@ -810,15 +836,39 @@ export default function SettingsView() {
                   <span>New Password</span>
                   <span className="profile-field-hint">Min 8 characters</span>
                 </label>
-                <div className="profile-input-wrap">
+                <div className="profile-input-wrap" style={{ position: "relative" }}>
                   <input
-                    type="password"
+                    type={showNewPassword ? "text" : "password"}
                     className="profile-input"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="••••••••••••"
                     autoComplete="new-password"
+                    style={{ paddingRight: "44px" }}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((prev) => !prev)}
+                    title={showNewPassword ? "Hide password" : "Show password"}
+                    aria-label={showNewPassword ? "Hide password" : "Show password"}
+                    style={{
+                      position: "absolute",
+                      right: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      padding: "4px",
+                      cursor: "pointer",
+                      color: "var(--muted)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      zIndex: 2,
+                    }}
+                  >
+                    <Icon name={showNewPassword ? "eyeOff" : "eye"} />
+                  </button>
                 </div>
               </div>
             </div>
