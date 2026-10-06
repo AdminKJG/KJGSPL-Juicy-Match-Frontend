@@ -8,7 +8,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      port: 4000,
+      host: "0.0.0.0",
+      port: process.env.PORT ? parseInt(process.env.PORT) : 4000,
       open: false,
       proxy: {
         "/api": {
@@ -19,6 +20,10 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/api/, "/v1"),
         },
       },
+    },
+    preview: {
+      host: "0.0.0.0",
+      port: process.env.PORT ? parseInt(process.env.PORT) : 4000,
     },
   };
 });
