@@ -10,11 +10,11 @@ export default function Shell({ children }) {
   const isChatView = page === "messages" || page === "chat";
 
   return (
-    <div className="shell">
+    <div className="grid grid-cols-[auto_1fr] min-h-screen transition-all duration-300">
       <Rail />
-      <div className="workspace">
+      <div className={`flex flex-col min-w-0 ${isChatView ? 'h-screen p-0' : 'pb-[50px]'}`}>
         {!isChatView && <Topbar />}
-        <main id="main" className="page">
+        <main id="main" className={`flex-1 flex flex-col ${isChatView ? 'max-w-full h-full p-0 m-0' : ''}`}>
           {children}
         </main>
       </div>

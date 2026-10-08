@@ -7,6 +7,7 @@ const mainNav = [
   { id: "discover", label: "Discover", icon: "discover" },
   { id: "connections", label: "Connections", icon: "heart" },
   { id: "explore", label: "Explore", icon: "compass" },
+  { id: "passport", label: "Passport", icon: "plane" },
   { id: "messages", label: "Messages", icon: "chat" },
   { id: "notifications", label: "Notifications", icon: "bell" },
   { id: "settings", label: "Settings", icon: "settings" },
@@ -48,7 +49,7 @@ export default function Rail() {
   const activeNavId =
     currentTab === "chat"
       ? "messages"
-      : ["passport", "events", "desires"].includes(currentTab)
+      : ["events", "desires"].includes(currentTab)
         ? "explore"
         : ["privacy", "album", "membership"].includes(currentTab)
           ? "profile"
@@ -69,10 +70,10 @@ export default function Rail() {
       : "All privileges active";
 
   return (
-    <aside className={`rail ${isCollapsed ? "collapsed" : ""}`}>
-      <div className="brand-header-row">
+    <aside className={`sticky top-0 h-screen m-0 flex flex-col bg-gradient-to-b from-[#1e0d26] to-[#120718] border-r border-white/10 rounded-r-[32px] shadow-[12px_0_40px_rgba(0,0,0,0.42),0_0_0_1px_rgba(244,63,94,0.06)] backdrop-blur-xl z-50 overflow-y-auto no-scrollbar transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${isCollapsed ? "w-[76px] px-2 py-5 rounded-r-[20px] items-center" : "w-[240px] pt-6 pb-5 pl-5 pr-5"}`}>
+      <div className={`flex items-center justify-between gap-2 mb-6 ${isCollapsed ? "flex-col w-full !mb-5" : ""}`}>
         <a
-          className="brand"
+          className={`flex items-center gap-3 font-serif text-[1.4rem] font-bold text-white no-underline px-1.5 py-1 m-0 ${isCollapsed ? "justify-center p-0" : ""}`}
           href="/discover"
           onClick={(e) => {
             e.preventDefault();
@@ -80,80 +81,80 @@ export default function Rail() {
           }}
           title="Juicy Match Home"
         >
-          <img src="/assets/logo.jpg" alt="Juicy Match" className="brand-logo-only" />
-          {!isCollapsed && <span className="brand-title">Juicy Match</span>}
+          <img src="/assets/logo.jpg" alt="Juicy Match" className={`rounded-xl object-cover shadow-[0_4px_16px_rgba(225,29,72,0.35)] shrink-0 transition-transform duration-200 hover:scale-105 ${isCollapsed ? "w-9 h-9" : "w-11 h-11"}`} />
+          {!isCollapsed && <span className="font-serif font-bold text-[1.2rem] text-white tracking-tight whitespace-nowrap">Juicy Match</span>}
         </a>
         <button
           type="button"
-          className="rail-collapse-btn"
+          className="flex items-center justify-center shrink-0 w-[34px] h-[34px] bg-white/5 border border-white/10 text-[#a595a8] rounded-lg cursor-pointer transition-all duration-200 hover:bg-pink/15 hover:border-pink/35 hover:text-white"
           onClick={toggleCollapse}
           title={isCollapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar"}
           aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          <Icon name="sidebar" />
+          <Icon name="sidebar" className="w-[17px] h-[17px]" />
         </button>
       </div>
 
-      <nav aria-label="Main navigation" className="nav-menu">
+      <nav aria-label="Main navigation" className="flex flex-col gap-2">
         {mainNav.map((item) => {
           const isActive = activeNavId === item.id;
           return (
             <button
               key={item.id}
               type="button"
-              className={`nav-link ${isActive ? "active" : ""}`}
+              className={`flex items-center gap-3.5 h-[50px] px-4.5 rounded-2xl text-[1.02rem] font-semibold bg-transparent border-none cursor-pointer w-full text-left transition-all duration-200 select-none ${isCollapsed ? "justify-center px-0 w-11 h-11 rounded-[14px]" : ""} ${isActive ? "bg-gradient-to-br from-[#e11d48] to-[#be123c] text-white shadow-[0_6px_20px_rgba(225,29,72,0.4)]" : "text-[#a595a8] hover:bg-white/5 hover:text-white"}`}
               onClick={() => navigate(item.id)}
               aria-current={isActive ? "page" : undefined}
               title={isCollapsed ? item.label : undefined}
             >
-              <span className="nav-icon-wrap">
-                <Icon name={item.icon} />
+              <span className="flex items-center justify-center w-6 h-6 shrink-0">
+                <Icon name={item.icon} className={`w-[21px] h-[21px] stroke-[2] transition-transform duration-150 group-hover:scale-105 ${isActive ? "stroke-white stroke-[2.2]" : "stroke-currentColor"}`} />
               </span>
-              {!isCollapsed && <span className="nav-label">{item.label}</span>}
+              {!isCollapsed && <span className="flex items-center flex-1 leading-none tracking-tight">{item.label}</span>}
             </button>
           );
         })}
       </nav>
 
-      <div className="rail-bottom">
+      <div className="mt-auto pt-6 flex flex-col gap-4">
         {/* Free Plan Upgrade Card */}
         <div
-          className="plan-card"
+          className={`bg-gradient-to-b from-[#240e28] to-[#17091a] border border-[#f43f5e]/25 rounded-[18px] cursor-pointer transition-all duration-200 shadow-[0_8px_24px_rgba(0,0,0,0.3)] hover:border-[#f43f5e]/50 hover:-translate-y-0.5 hover:shadow-[0_10px_28px_rgba(225,29,72,0.22)] ${isCollapsed ? "p-2 text-center flex justify-center rounded-xl" : "px-5 py-4.5"}`}
           onClick={() => navigate("membership")}
           role="button"
           tabIndex="0"
           aria-label="Membership plans"
           title={isCollapsed ? planName : undefined}
         >
-          <div className="plan-card-header">
-            <span className="plan-badge">
-              <span className="spark-symbol">✦</span> {isCollapsed ? "VIP" : planBadge}
+          <div className="flex items-center justify-between">
+            <span className="text-[#fb7185] text-[0.78rem] font-extrabold tracking-[0.08em] uppercase flex items-center gap-1.5">
+              <span className="text-[#f43f5e] text-[0.9rem]">✦</span> {isCollapsed ? "VIP" : planBadge}
             </span>
-            {!isCollapsed && <span className="plan-arrow">↗</span>}
+            {!isCollapsed && <span className="text-white text-[1.1rem] opacity-90 transition-transform duration-200 hover:translate-x-0.5 hover:-translate-y-0.5">↗</span>}
           </div>
-          {!isCollapsed && <div className="plan-title">{planName}</div>}
-          {!isCollapsed && <div className="plan-subtitle">{planSubtitle}</div>}
+          {!isCollapsed && <div className="text-white text-[1.05rem] font-bold mt-2 tracking-tight">{planName}</div>}
+          {!isCollapsed && <div className="text-[#9a889c] text-[0.82rem] mt-1">{planSubtitle}</div>}
         </div>
 
         {/* Member Footer */}
         <div
-          className="member-footer"
+          className={`flex items-center gap-3.5 p-2 rounded-2xl cursor-pointer transition-colors duration-150 hover:bg-white/5 ${isCollapsed ? "justify-center flex-col gap-1.5 w-full" : ""}`}
           onClick={() => navigate("profile")}
           role="button"
           tabIndex="0"
           title={isCollapsed ? pseudonym : undefined}
         >
-          <Avatar profile={state?.me?.profile} className="member-avatar" />
+          <Avatar profile={state?.me?.profile} className="w-11 h-11 rounded-full bg-gradient-to-br from-[#e11d48] to-[#be123c] text-white grid place-items-center font-serif font-bold text-[1.25rem] shrink-0 shadow-[0_4px_14px_rgba(225,29,72,0.35)] overflow-hidden relative" />
           {!isCollapsed && (
-            <div className="member-info">
-              <div className="member-name">{pseudonym}</div>
-              <div className="member-desc">Your private space</div>
+            <div className="flex-1 min-w-0 flex flex-col justify-center">
+              <div className="text-white font-bold text-[1.02rem] whitespace-nowrap overflow-hidden text-ellipsis leading-tight">{pseudonym}</div>
+              <div className="text-[#8c7b8e] text-[0.82rem] whitespace-nowrap overflow-hidden text-ellipsis mt-[3px] leading-tight">Your private space</div>
             </div>
           )}
-          <div className="member-footer-actions">
+          <div className={`flex items-center gap-1.5 ${isCollapsed ? "flex-col" : ""}`}>
             <button
               type="button"
-              className="member-theme-btn"
+              className="w-[38px] h-[38px] rounded-full bg-[#1c0e20] border border-white/10 grid place-items-center cursor-pointer p-0 text-[#ff9ec7] shrink-0 transition-all duration-200 hover:bg-pink/15 hover:border-pink/40 hover:text-white hover:rotate-15 hover:scale-105"
               onClick={(e) => {
                 e.stopPropagation();
                 logout();
@@ -161,7 +162,7 @@ export default function Rail() {
               aria-label="Sign out"
               title="Sign out"
             >
-              <Icon name="logout" />
+              <Icon name="logout" className="w-[19px] h-[19px] stroke-currentColor stroke-[2.2]" />
             </button>
           </div>
         </div>

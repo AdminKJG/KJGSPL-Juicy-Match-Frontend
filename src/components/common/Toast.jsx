@@ -1,14 +1,3 @@
-import React from "react";
-import { useApp } from "../../context/AppContext";
-
-export default function Toast() {
-  const { toastMessage } = useApp();
-
-  if (!toastMessage) return null;
-
-  return (
-    <div className="toast-container" role="status" aria-live="polite">
-      {toastMessage}
-    </div>
-  );
-}
+// Re-export bridge for backward compatibility
+export { default } from "./ui/Toast";
+export * from "./ui/Toast";

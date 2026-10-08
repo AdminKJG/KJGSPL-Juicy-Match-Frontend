@@ -6,22 +6,22 @@ import Toast from "./components/common/Toast";
 import CallModal from "./components/common/CallModal";
 import EmptyState from "./components/common/EmptyState";
 
-import AuthView from "./components/views/AuthView";
-import DiscoverView from "./components/views/DiscoverView";
-import ConnectionsView from "./components/views/ConnectionsView";
-import ChatView from "./components/views/ChatView";
-import ProfileView from "./components/views/ProfileView";
-import ExploreView from "./components/views/ExploreView";
-import DesiresView from "./components/views/DesiresView";
-import PassportView from "./components/views/PassportView";
-import EventsView from "./components/views/EventsView";
-import MembershipView from "./components/views/MembershipView";
-import SettingsView from "./components/views/SettingsView";
-import PrivacyView from "./components/views/PrivacyView";
-import PoliciesView from "./components/views/PoliciesView";
-import NotificationsView from "./components/views/NotificationsView";
-import AlbumView from "./components/views/AlbumView";
-import AssistView from "./components/views/AssistView";
+import AuthView from "./components/views/auth/AuthView";
+import DiscoverView from "./components/views/discover/DiscoverView";
+import ConnectionsView from "./components/views/connections/ConnectionsView";
+import ChatView from "./components/views/chat/ChatView";
+import ProfileView from "./components/views/profile/ProfileView";
+import ExploreView from "./components/views/explore/ExploreView";
+import DesiresView from "./components/views/desires/DesiresView";
+import PassportView from "./components/views/passport/PassportView";
+import EventsView from "./components/views/events/EventsView";
+import MembershipView from "./components/views/membership/MembershipView";
+import SettingsView from "./components/views/settings/SettingsView";
+import PrivacyView from "./components/views/privacy/PrivacyView";
+import PoliciesView from "./components/views/policies/PoliciesView";
+import NotificationsView from "./components/views/notifications/NotificationsView";
+import AlbumView from "./components/views/album/AlbumView";
+import AssistView from "./components/views/assist/AssistView";
 import { title } from "./utils/formatters";
 
 export default function App() {
@@ -33,57 +33,7 @@ export default function App() {
     document.title = `Juicy Match · ${title(page === "chat" ? "conversation" : page || "discover")}`;
   }, [page]);
 
-  // If not authenticated, force auth or public views
-  if (!state.authenticated) {
-    if (page === "signup") {
-      return (
-        <>
-          <AuthView isSignup={true} />
-          <Modal />
-          <Toast />
-          {activeCall && (
-            <CallModal
-              callData={activeCall}
-              onClose={endActiveCall}
-              showToast={showToast}
-            />
-          )}
-        </>
-      );
-    }
-    if (page === "policies") {
-      return (
-        <div style={{ height: "100vh", maxHeight: "100vh", overflow: "hidden", background: "radial-gradient(ellipse at 90% 0%, rgba(53, 18, 43, 0.6), transparent 55%), var(--night)", padding: "16px 24px" }}>
-          <main id="main" style={{ height: "100%", maxWidth: "1280px", margin: "0 auto" }}>
-            <PoliciesView />
-          </main>
-          <Modal />
-          <Toast />
-          {activeCall && (
-            <CallModal
-              callData={activeCall}
-              onClose={endActiveCall}
-              showToast={showToast}
-            />
-          )}
-        </div>
-      );
-    }
-    return (
-      <>
-        <AuthView isSignup={false} />
-        <Modal />
-        <Toast />
-        {activeCall && (
-          <CallModal
-            callData={activeCall}
-            onClose={endActiveCall}
-            showToast={showToast}
-          />
-        )}
-      </>
-    );
-  }
+  // The single React tree is returned below to prevent <Toast /> from unmounting during auth state changes
 
   // Render view inside Shell for authenticated members
   const renderViewContent = () => {
@@ -136,7 +86,22 @@ export default function App() {
 
   return (
     <>
-      <Shell>{renderViewContent()}</Shell>
+      {!state.authenticated ? (
+        page === "signup" ? (
+          <AuthView isSignup={true} />
+        ) : page === "policies" ? (
+          <div style={{ height: "100vh", maxHeight: "100vh", overflow: "hidden", background: "radial-gradient(ellipse at 90% 0%, rgba(53, 18, 43, 0.6), transparent 55%), var(--night)", padding: "16px 24px" }}>
+            <main id="main" style={{ height: "100%", maxWidth: "1280px", margin: "0 auto" }}>
+              <PoliciesView />
+            </main>
+          </div>
+        ) : (
+          <AuthView isSignup={false} />
+        )
+      ) : (
+        <Shell>{renderViewContent()}</Shell>
+      )}
+      
       <Modal />
       <Toast />
       {activeCall && (

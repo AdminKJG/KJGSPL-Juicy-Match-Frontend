@@ -19,26 +19,26 @@ export default function MobileNav() {
   const activeNavId =
     currentTab === "chat"
       ? "messages"
-      : ["passport", "events", "desires"].includes(currentTab)
+      : ["events", "desires"].includes(currentTab)
       ? "explore"
       : ["privacy", "album", "membership"].includes(currentTab)
       ? "profile"
       : currentTab;
 
   return (
-    <nav className="mobile-nav" aria-label="Mobile navigation">
+    <nav className="fixed bottom-0 left-0 right-0 h-[64px] bg-[#120d16]/95 backdrop-blur-xl border-t border-white/10 flex md:hidden items-center justify-around px-2 z-50 pb-[env(safe-area-inset-bottom)]" aria-label="Mobile navigation">
       {mainNav.map((item) => {
         const isActive = activeNavId === item.id;
         return (
           <button
             key={item.id}
             type="button"
-            className={isActive ? "active" : ""}
+            className={`flex flex-col items-center justify-center gap-1 min-w-[56px] h-full transition-all duration-200 ${isActive ? "text-pink" : "text-[#a595a8] hover:text-white"}`}
             onClick={() => navigate(item.id)}
             aria-current={isActive ? "page" : undefined}
           >
-            <Icon name={item.icon} />
-            <span>{item.label}</span>
+            <Icon name={item.icon} className={`w-6 h-6 ${isActive ? "scale-110" : ""}`} />
+            <span className="text-[10px] font-medium tracking-wide">{item.label}</span>
           </button>
         );
       })}

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
+import { toast } from "react-toastify";
 import {
   initialConfig,
   demoActors,
@@ -774,11 +775,59 @@ export function AppProvider({ children }) {
     setActiveRoute(target);
   };
 
-  const showToast = (message) => {
+  const showToast = (message, type = "info", options = {}) => {
+    if (!message) return;
     setToastMessage(message);
-    setTimeout(() => {
-      setToastMessage((cur) => (cur === message ? null : cur));
-    }, 4500);
+
+    const defaultOptions = {
+      position: "top-right",
+      autoClose: 3500,
+      hideProgressBar: false,
+      closeOnClick: true,
+      pauseOnHover: true,
+      draggable: true,
+      theme: "dark",
+      ...options,
+    };
+
+    const msgStr = String(message);
+    const msgLower = msgStr.toLowerCase();
+
+    if (type === "success") {
+      toast.success(message, defaultOptions);
+    } else if (type === "error") {
+      toast.error(message, defaultOptions);
+    } else if (type === "warn" || type === "warning") {
+      toast.warn(message, defaultOptions);
+    } else {
+      if (
+        msgLower.includes("error") ||
+        msgLower.includes("failed") ||
+        msgLower.includes("invalid") ||
+        msgLower.includes("denied") ||
+        msgStr.includes("🔴")
+      ) {
+        toast.error(message, defaultOptions);
+      } else if (
+        msgLower.includes("success") ||
+        msgLower.includes("welcome") ||
+        msgLower.includes("verified") ||
+        msgLower.includes("saved") ||
+        msgStr.includes("✨") ||
+        msgStr.includes("🔒") ||
+        msgStr.includes("📸")
+      ) {
+        toast.success(message, defaultOptions);
+      } else if (
+        msgLower.includes("warning") ||
+        msgLower.includes("caution") ||
+        msgLower.includes("expired")
+      ) {
+        toast.warn(message, defaultOptions);
+      } else {
+        toast.info(message, defaultOptions);
+      }
+    }
   };
 
   const openModal = (title, content) => {
@@ -800,6 +849,15 @@ export function AppProvider({ children }) {
     }
 
     const accountProfile = account?.profile || {};
+    const displayName =
+      account?.pseudonym ||
+      accountProfile.pseudonym ||
+      account?.name ||
+      account?.email ||
+      "Member";
+
+    showToast(`Welcome back, ${displayName}! 👋`, "success");
+
     setState((prev) => {
       const updated = {
         ...prev,

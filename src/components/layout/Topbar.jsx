@@ -24,13 +24,13 @@ export default function Topbar() {
   const notificationsCount = state?.notifications?.filter((n) => !n.read).length || 47;
 
   return (
-    <header className="topbar">
-      <div className="topbar-left">
-        <div className="topbar-search-wrap">
-          <Icon name="search" className="topbar-search-icon" />
+    <header className="sticky top-0 z-40 h-[72px] bg-night/80 backdrop-blur-md border-b border-white/10 flex items-center justify-between px-6">
+      <div className="flex items-center flex-1">
+        <div className="relative w-full max-w-md hidden md:block">
+          <Icon name="search" className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
           <input
             type="text"
-            className="topbar-search-input"
+            className="w-full bg-white/5 border border-white/10 rounded-full h-[42px] pl-10 pr-4 text-sm text-white placeholder-muted focus:outline-none focus:border-pink/50 focus:bg-white/10 transition-all"
             placeholder="Search connections, sparks, messages…"
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -41,45 +41,45 @@ export default function Topbar() {
         </div>
       </div>
 
-      <div className="top-actions">
+      <div className="flex items-center gap-4">
         {/* AI Assistant Button */}
         <button
           type="button"
-          className="button quiet topbar-action-btn"
+          className="hidden sm:flex items-center gap-2 h-10 px-4 rounded-full bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 text-amber-200 hover:bg-amber-500/20 transition-all text-sm font-semibold"
           onClick={() => navigate("assist")}
           title="AI Coach & Match Guidance"
         >
-          <Icon name="sparkle" className="icon-gold" />
-          <span className="topbar-btn-text">AI Coach</span>
+          <Icon name="sparkle" className="w-4 h-4 text-amber-400" />
+          <span>AI Coach</span>
         </button>
 
         {/* Notifications Trigger */}
         <button
           type="button"
-          className="button quiet topbar-action-btn notif-bell-btn"
+          className="relative flex items-center justify-center w-10 h-10 rounded-full bg-white/5 border border-white/10 text-muted hover:bg-white/10 hover:text-white transition-all"
           onClick={() => navigate("notifications")}
           title="Notifications"
         >
-          <Icon name="bell" />
+          <Icon name="bell" className="w-5 h-5" />
           {notificationsCount > 0 && (
-            <span className="topbar-notif-badge">{notificationsCount > 99 ? "99+" : notificationsCount}</span>
+            <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-pink text-white text-[10px] font-bold rounded-full shadow-[0_2px_4px_rgba(233,22,113,0.4)] border-2 border-night">
+              {notificationsCount > 99 ? "99+" : notificationsCount}
+            </span>
           )}
         </button>
 
-
-
         {/* User Profile Pill */}
         <div
-          className="topbar-user-pill"
+          className="flex items-center gap-3 pl-2 pr-4 py-1.5 rounded-full bg-white/5 border border-white/10 cursor-pointer hover:bg-white/10 transition-all select-none"
           onClick={() => navigate("profile")}
           role="button"
           tabIndex="0"
           title="View Your Profile"
         >
-          <Avatar profile={state?.me?.profile} className="topbar-avatar" />
-          <div className="topbar-user-details">
-            <span className="topbar-user-name">{pseudonym}</span>
-            <span className="topbar-plan-badge">✦ {plan}</span>
+          <Avatar profile={state?.me?.profile} className="w-8 h-8 rounded-full bg-pink text-white flex items-center justify-center font-bold text-sm shadow-sm" />
+          <div className="hidden lg:flex flex-col">
+            <span className="text-[0.9rem] font-bold text-white leading-tight">{pseudonym}</span>
+            <span className="text-[0.65rem] font-extrabold uppercase tracking-widest text-pink mt-0.5">✦ {plan}</span>
           </div>
         </div>
       </div>
