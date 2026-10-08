@@ -70,12 +70,12 @@ export const mediaService = {
       }
     } catch {}
 
-    // 2. Fetch authenticated binary stream from backend
+    // 2. Fetch authenticated stream/data from backend
     try {
       const url = mediaService.getRawMediaUrl(mediaIdOrUrl);
       const { token } = getStoredTokens();
       const headers = {
-        Accept: "image/*,video/*,*/*",
+        Accept: "audio/*,image/*,video/*,application/json,*/*",
       };
       if (token) headers["Authorization"] = `Bearer ${token}`;
       const res = await fetch(url, {
@@ -84,8 +84,22 @@ export const mediaService = {
         credentials: "include",
       });
       if (res.ok) {
-        const blob = await res.blob();
-        return URL.createObjectURL(blob);
+        const contentType = (res.headers.get("content-type") || "").toLowerCase();
+        if (contentType.includes("application/json")) {
+          const json = await res.json();
+          const base64Data = json.base64 || json.data || json.media || json.url;
+          if (base64Data) {
+            if (base64Data.startsWith("data:") || base64Data.startsWith("blob:") || base64Data.startsWith("http")) {
+              return base64Data;
+            }
+            const isAudio = json.kind === "voice" || json.kind === "audio" || (json.type && json.type.includes("audio"));
+            const mime = isAudio ? "audio/webm" : "image/jpeg";
+            return `data:${mime};base64,${base64Data}`;
+          }
+        } else {
+          const blob = await res.blob();
+          return URL.createObjectURL(blob);
+        }
       }
     } catch {}
 
@@ -119,15 +133,18 @@ export const mediaService = {
       }
     } catch {}
 
-    // 4. Scan any jm_media_cache_* in localStorage
+    // 4. Scan any jm_media_cache_* in localStorage (images, video, audio)
     try {
       const uuidMatch = mediaIdOrUrl.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && key.startsWith("jm_media_cache_")) {
           const val = localStorage.getItem(key);
-          if (val && (val.startsWith("data:image/") || val.startsWith("blob:"))) {
+          if (val && (val.startsWith("data:") || val.startsWith("blob:"))) {
             if (uuidMatch && key.includes(uuidMatch[1])) {
+              return val;
+            }
+            if (key.includes(mediaIdOrUrl)) {
               return val;
             }
           }

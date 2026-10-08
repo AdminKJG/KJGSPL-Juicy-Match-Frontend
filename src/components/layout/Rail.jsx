@@ -35,6 +35,17 @@ export default function Rail() {
     localStorage.setItem("jm_rail_collapsed", isCollapsed ? "true" : "false");
   }, [isCollapsed]);
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        setIsCollapsed((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const toggleTheme = (e) => {
     e.stopPropagation();
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));
@@ -86,12 +97,24 @@ export default function Rail() {
         </a>
         <button
           type="button"
-          className="flex items-center justify-center shrink-0 w-[34px] h-[34px] bg-white/5 border border-white/10 text-[#a595a8] rounded-lg cursor-pointer transition-all duration-200 hover:bg-pink/15 hover:border-pink/35 hover:text-white"
+          className={`flex items-center justify-center shrink-0 w-8 h-8 rounded-lg cursor-pointer transition-all duration-200 ${
+            isCollapsed
+              ? "mt-2 bg-[#e91671]/20 border border-[#e91671]/50 text-[#ff70a6] hover:bg-[#e91671] hover:text-white shadow-[0_0_12px_rgba(233,22,113,0.3)]"
+              : "bg-white/10 border border-white/15 text-white/85 hover:text-white hover:bg-[#e91671]/25 hover:border-[#e91671]/50"
+          }`}
           onClick={toggleCollapse}
-          title={isCollapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar"}
+          title={isCollapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar (Ctrl+B)"}
           aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          <Icon name="sidebar" className="w-[17px] h-[17px]" />
+          {isCollapsed ? (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          )}
         </button>
       </div>
 

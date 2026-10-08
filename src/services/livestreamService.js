@@ -1,5 +1,7 @@
 import { request } from "./api";
 
+const RAW_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
 export const broadcastLiveEvent = (event) => {
   if (!event || !event.type) return;
   try {
@@ -20,12 +22,12 @@ export const endStreamBeacon = (streamId) => {
 };
 
 export const livestreamService = {
-  // 8.1 Livestream Availability Mode
+  // 1. Livestream Availability Mode
   getMode: async () => {
     return await request("/livestreams/mode", { auth: false });
   },
 
-  // 8.2 Start Broadcast (Host)
+  // 2. Start Broadcast (Host)
   startBroadcast: async (title = "Live Studio Session") => {
     return await request("/livestreams", {
       method: "POST",
@@ -37,7 +39,7 @@ export const livestreamService = {
     return await livestreamService.startBroadcast(title);
   },
 
-  // 8.3 End Broadcast (Host)
+  // 3. End Broadcast (Host)
   endBroadcast: async (streamId) => {
     try {
       const endedList = JSON.parse(localStorage.getItem("jm_ended_livestreams") || "[]");
@@ -46,14 +48,21 @@ export const livestreamService = {
         localStorage.setItem("jm_ended_livestreams", JSON.stringify(endedList));
       }
     } catch {}
+    broadcastLiveEvent({ type: "HOST_ENDED_LIVE", streamId });
     return await request(`/livestreams/${streamId}/end`, {
       method: "POST",
       body: {},
       auth: true,
     });
   },
+  endStream: async (streamId, meta = {}) => {
+    if (meta && Object.keys(meta).length > 0) {
+      livestreamService.markStreamEndedLocally(streamId, meta);
+    }
+    return await livestreamService.endBroadcast(streamId);
+  },
 
-  // 8.4 List Active Streams (Feed)
+  // 4. List Active Streams (Discovery Feed)
   listActiveStreams: async () => {
     return await request("/livestreams", { auth: true });
   },
@@ -68,26 +77,12 @@ export const livestreamService = {
     }
   },
 
-  // Helpers for UI state
-  getLastEndedStream: () => {
-    try {
-      const raw = localStorage.getItem("jm_last_ended_stream");
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  },
-  isStreamEndedLocally: (streamId) => {
-    if (!streamId) return false;
-    try {
-      const list = JSON.parse(localStorage.getItem("jm_ended_livestreams") || "[]");
-      return list.includes(String(streamId));
-    } catch {
-      return false;
-    }
+  // 5. Stream Details
+  getStreamDetails: async (streamId) => {
+    return await request(`/livestreams/${streamId}`, { auth: true });
   },
 
-  // 8.5 Livestream LiveKit Room Token (Host / Viewer)
+  // 6. Livestream LiveKit Room Token (Host / Viewer)
   getLivestreamToken: async (streamId) => {
     return await request(`/livestreams/${streamId}/token`, {
       method: "POST",
@@ -95,15 +90,31 @@ export const livestreamService = {
       auth: true,
     });
   },
+  getStreamToken: async (streamId) => {
+    return await livestreamService.getLivestreamToken(streamId);
+  },
 
-  // 8.6 Stream Chat Messages & Pagination
+  // 7. Stream Chat Messages & Pagination
   getMessages: async (streamId, after = null, limit = 100) => {
     const params = new URLSearchParams();
-    if (after) params.append("after", after);
-    if (limit) params.append("limit", String(limit));
+    if (after) {
+      if (typeof after === "number" && after <= 100 && !limit) {
+        params.append("limit", String(after));
+      } else {
+        params.append("after", String(after));
+        if (limit) params.append("limit", String(limit));
+      }
+    } else if (limit) {
+      params.append("limit", String(limit));
+    }
     const query = params.toString();
     const endpoint = query ? `/livestreams/${streamId}/messages?${query}` : `/livestreams/${streamId}/messages`;
-    return await request(endpoint, { auth: true });
+    try {
+      const res = await request(endpoint, { auth: true });
+      return Array.isArray(res) ? res : res?.items || res?.data?.items || res?.messages || [];
+    } catch {
+      return [];
+    }
   },
 
   sendMessage: async (streamId, body, clientId = null) => {
@@ -115,7 +126,7 @@ export const livestreamService = {
     });
   },
 
-  // 8.7 Stream Moderation (Mute / Ban Viewer)
+  // 8. Stream Moderation (Mute / Ban Viewer)
   muteViewer: async (streamId, viewerId, muted = true) => {
     return await request(`/livestreams/${streamId}/viewers/${viewerId}/mute`, {
       method: "POST",
@@ -132,7 +143,16 @@ export const livestreamService = {
     });
   },
 
-  // 8.8 Real-Time Stream Event Stream Ticket (SSE)
+  // 9. Report Stream
+  reportStream: async (streamId, reason = "harassment") => {
+    return await request(`/livestreams/${streamId}/report`, {
+      method: "POST",
+      body: { reason },
+      auth: true,
+    });
+  },
+
+  // 10. Real-Time Stream Event Stream Ticket (SSE)
   getEventsTicket: async (streamId) => {
     return await request(`/livestreams/${streamId}/events-ticket`, {
       method: "POST",
@@ -141,7 +161,67 @@ export const livestreamService = {
     });
   },
 
-  // 8.9 Leave Livestream
+  // Connect SSE with single-use ticket
+  connectEvents: async (streamId, onEvent, onError) => {
+    if (!streamId) return null;
+    try {
+      const ticketRes = await livestreamService.getEventsTicket(streamId);
+      const ticket = ticketRes?.ticket;
+      if (!ticket) {
+        onError?.(new Error("No SSE ticket returned"));
+        return null;
+      }
+
+      const sseBase = RAW_BASE_URL ? `${RAW_BASE_URL}/v1` : "/v1";
+      const sseUrl = `${sseBase}/livestreams/${streamId}/events?ticket=${encodeURIComponent(ticket)}`;
+      const es = new EventSource(sseUrl);
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          onEvent?.(data);
+        } catch {
+          onEvent?.({ body: e.data });
+        }
+      };
+
+      // Named SSE events matching API doc
+      const eventTypes = [
+        "ready",
+        "livestream.started",
+        "livestream.viewers",
+        "livestream.viewer_count",
+        "livestream.message",
+        "livestream.moderation",
+        "livestream.muted",
+        "livestream.banned",
+        "livestream.ended",
+        "livestream.end",
+      ];
+
+      eventTypes.forEach((evtName) => {
+        es.addEventListener(evtName, (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            onEvent?.({ type: evtName, ...data });
+          } catch {
+            onEvent?.({ type: evtName, raw: e.data });
+          }
+        });
+      });
+
+      es.onerror = (err) => {
+        onError?.(err);
+      };
+
+      return es;
+    } catch (err) {
+      onError?.(err);
+      return null;
+    }
+  },
+
+  // 11. Leave Livestream (Viewer)
   leaveStream: async (streamId) => {
     return await request("/livestreams/leave", {
       method: "POST",
@@ -149,4 +229,41 @@ export const livestreamService = {
       auth: true,
     });
   },
+
+  // Helpers for UI state & ended stream caching
+  markStreamEndedLocally: (streamId, meta = {}) => {
+    if (!streamId) return;
+    try {
+      const endedList = JSON.parse(localStorage.getItem("jm_ended_livestreams") || "[]");
+      if (!endedList.includes(String(streamId))) {
+        endedList.push(String(streamId));
+        localStorage.setItem("jm_ended_livestreams", JSON.stringify(endedList));
+      }
+      localStorage.setItem("jm_last_ended_stream", JSON.stringify({
+        id: streamId,
+        ...meta,
+        endedAt: meta.endedAt || new Date().toISOString(),
+      }));
+    } catch {}
+  },
+
+  getLastEndedStream: () => {
+    try {
+      const raw = localStorage.getItem("jm_last_ended_stream");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  isStreamEndedLocally: (streamId) => {
+    if (!streamId) return false;
+    try {
+      const list = JSON.parse(localStorage.getItem("jm_ended_livestreams") || "[]");
+      return list.includes(String(streamId));
+    } catch {
+      return false;
+    }
+  },
 };
+

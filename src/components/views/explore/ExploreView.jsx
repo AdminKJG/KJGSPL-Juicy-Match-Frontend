@@ -4,7 +4,8 @@ import PageHead from "../../common/PageHead";
 import Loader from "../../common/Loader";
 import EmptyState from "../../common/EmptyState";
 import AtmosphericMap from "../../common/AtmosphericMap";
-import LiveStreamStudioModal from "../../common/LiveStreamStudioModal";
+import LiveStreamStudioModal from "../../common/modals/livestream/LiveStreamStudioModal";
+import StartLiveStreamModal from "../../common/modals/livestream/StartLiveStreamModal";
 import { useApp } from "../../../context/AppContext";
 import { exploreService } from "../../../services/exploreService";
 import { discoverService } from "../../../services/discoverService";
@@ -86,8 +87,10 @@ export default function ExploreView() {
   };
 
   // Load Live Streams from backend (GET /v1/livestreams)
-  const loadLiveStreams = async () => {
-    setLoadingLiveStreams(true);
+  const loadLiveStreams = async (isInitial = false) => {
+    if (isInitial && liveStreams.length === 0) {
+      setLoadingLiveStreams(true);
+    }
     try {
       const currentUser = {
         id: state.me?.id,
@@ -108,7 +111,9 @@ export default function ExploreView() {
     } catch (err) {
       console.warn("[JM Live] Failed to fetch active streams:", err.message);
     } finally {
-      setLoadingLiveStreams(false);
+      if (isInitial) {
+        setLoadingLiveStreams(false);
+      }
     }
   };
 
@@ -181,16 +186,16 @@ export default function ExploreView() {
     loadMap();
     loadEvents();
     loadLiveSparks();
-    loadLiveStreams();
+    loadLiveStreams(true);
   }, []);
 
-  // Periodic refresh of live broadcasts when active on Live tab
+  // Periodic refresh of live broadcasts when active on Live tab (seamless background fetch, no spinner flicker)
   useEffect(() => {
     if (activeTab !== "live") return;
-    loadLiveStreams();
-    const interval = setInterval(loadLiveStreams, 8000);
+    loadLiveStreams(false);
+    const interval = setInterval(() => loadLiveStreams(false), 12000);
     return () => clearInterval(interval);
-  }, [activeTab, activeStreamModal]);
+  }, [activeTab]);
 
   // Real-time synchronization for Livestream events (host started live, host ended live)
   useEffect(() => {
@@ -327,6 +332,12 @@ export default function ExploreView() {
         role: "host",
       });
 
+      // Broadcast globally to all tabs & sessions
+      broadcastLiveEvent({
+        type: "HOST_STARTED_LIVE",
+        ...activeStreamObj,
+      });
+
       // Instantly show in own live broadcasts list
       setLiveStreams((prev) => {
         const clean = prev.filter((s) => (s.id || s.streamId) !== streamId);
@@ -340,7 +351,7 @@ export default function ExploreView() {
           if (conn.id) {
             chatService.sendMessage(
               conn.id,
-              `🔴 I just went Live: "${res?.title || title}"! Come join my live broadcast room in Explore. 🎥`,
+              `🔴 I just went Live: "${res?.title || title}"! Come join my live broadcast room in Explore. 🎥 [livestream:${streamId}]`,
               null,
               { senderId: state.me?.id, peerId: conn.peer?.id }
             ).catch(() => {});
@@ -741,10 +752,10 @@ export default function ExploreView() {
                   <span>Refresh</span>
                 </button>
 
-                <div style={{ position: "relative" }} ref={goLiveContainerRef}>
+                <div>
                   <button
                     type="button"
-                    className="flex items-center justify-center gap-2 h-10 px-4 rounded-full bg-pink hover:bg-[#ff2a85] text-white font-semibold transition-all shadow-[0_4px_14px_rgba(233,22,113,0.3)]"
+                    className="flex items-center justify-center gap-2 h-10 px-4 rounded-full bg-pink hover:bg-[#ff2a85] text-white font-semibold transition-all shadow-[0_4px_14px_rgba(233,22,113,0.3)] cursor-pointer"
                     style={{
                       minHeight: "38px",
                       padding: "0 20px",
@@ -754,7 +765,7 @@ export default function ExploreView() {
                       borderRadius: "10px",
                     }}
                     onClick={() => {
-                      setIsStartingStream((prev) => !prev);
+                      setIsStartingStream(true);
                       if (!streamTitleInput) {
                         setStreamTitleInput(`${state.me?.profile?.pseudonym || "Host"}'s Live Stream ✨`);
                       }
@@ -762,84 +773,6 @@ export default function ExploreView() {
                   >
                     <span>Go Live</span> 🎥
                   </button>
-
-                  {/* Floating Popover Right at the Go Live Button */}
-                  {isStartingStream && (
-                    <div className="go-live-popover-card">
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{ fontSize: "1.4rem" }}>🎥</span>
-                          <div>
-                            <h4 style={{ margin: 0, color: "#fff", fontSize: "1.05rem", fontWeight: 700 }}>Start Live Stream</h4>
-                            <span style={{ fontSize: "0.74rem", color: "#a89fb0" }}>Broadcast live video & audio</span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="flex items-center justify-center gap-2 h-10 px-4 rounded-full bg-white/5 hover:bg-white/10 text-white font-semibold transition-all border border-white/10"
-                          style={{ minHeight: "26px", padding: "0 8px", fontSize: "0.85rem", lineHeight: 1 }}
-                          onClick={() => setIsStartingStream(false)}
-                          title="Close"
-                        >
-                          ✕
-                        </button>
-                      </div>
-
-                      <form onSubmit={handleConfirmStartStream}>
-                        <label style={{ display: "block", fontSize: "0.72rem", fontWeight: 800, color: "#fb7185", letterSpacing: "0.5px", marginBottom: "6px" }}>
-                          STREAM TITLE
-                        </label>
-                        <input
-                          type="text"
-                          autoFocus
-                          placeholder="e.g. Evening Chat & Vibes ✨"
-                          value={streamTitleInput}
-                          onChange={(e) => setStreamTitleInput(e.target.value)}
-                          className="go-live-title-input"
-                        />
-
-                        {/* Quick suggestions */}
-                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "14px" }}>
-                          {["✨ Casual Vibes", "☕ Coffee & Chat", "🍷 Evening Lounge"].map((preset) => (
-                            <button
-                              key={preset}
-                              type="button"
-                              className="px-3 py-1 bg-white/10 border border-white/10 text-white rounded-full text-[0.8rem] whitespace-nowrap"
-                              style={{ fontSize: "0.72rem", padding: "2px 8px", cursor: "pointer" }}
-                              onClick={() => setStreamTitleInput(preset)}
-                            >
-                              {preset}
-                            </button>
-                          ))}
-                        </div>
-
-                        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-                          <button
-                            type="button"
-                            className="flex items-center justify-center gap-2 h-10 px-4 rounded-full bg-white/5 hover:bg-white/10 text-white font-semibold transition-all border border-white/10"
-                            style={{ minHeight: "34px", padding: "0 12px", fontSize: "0.82rem" }}
-                            onClick={() => setIsStartingStream(false)}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="submit"
-                            className="flex items-center justify-center gap-2 h-10 px-4 rounded-full bg-pink hover:bg-[#ff2a85] text-white font-semibold transition-all shadow-[0_4px_14px_rgba(233,22,113,0.3)]"
-                            style={{
-                              minHeight: "34px",
-                              padding: "0 16px",
-                              fontSize: "0.84rem",
-                              fontWeight: 700,
-                              background: "linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)",
-                              boxShadow: "0 4px 14px rgba(244, 63, 94, 0.4)",
-                            }}
-                          >
-                            <span>Go Live Now</span> 🚀
-                          </button>
-                        </div>
-                      </form>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -1101,6 +1034,16 @@ export default function ExploreView() {
         </section>
       )}
 
+
+      {/* Start Live Stream Broadcast Setup Modal */}
+      <StartLiveStreamModal
+        isOpen={isStartingStream}
+        streamTitle={streamTitleInput}
+        onTitleChange={setStreamTitleInput}
+        onSubmit={handleConfirmStartStream}
+        onClose={() => setIsStartingStream(false)}
+        currentUser={state.me}
+      />
 
       {/* Fullscreen Live Stream Studio / Viewer Modal */}
       {activeStreamModal && (

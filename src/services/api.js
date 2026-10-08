@@ -4,7 +4,7 @@ let csrf = "";
 
 export const getStoredTokens = () => {
   try {
-    const token = localStorage.getItem("jm_access_token");
+    const token = localStorage.getItem("jm_access_token") || localStorage.getItem("jm_token");
     const refreshToken = localStorage.getItem("jm_refresh_token");
     return { token, refreshToken };
   } catch {
@@ -14,8 +14,13 @@ export const getStoredTokens = () => {
 
 export const setStoredTokens = (token, refreshToken) => {
   try {
-    if (token) localStorage.setItem("jm_access_token", token);
-    else localStorage.removeItem("jm_access_token");
+    if (token) {
+      localStorage.setItem("jm_access_token", token);
+      localStorage.setItem("jm_token", token);
+    } else {
+      localStorage.removeItem("jm_access_token");
+      localStorage.removeItem("jm_token");
+    }
 
     if (refreshToken) localStorage.setItem("jm_refresh_token", refreshToken);
     else localStorage.removeItem("jm_refresh_token");

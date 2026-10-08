@@ -4,6 +4,7 @@ import Shell from "./components/layout/Shell";
 import Modal from "./components/common/Modal";
 import Toast from "./components/common/Toast";
 import CallModal from "./components/common/CallModal";
+import LiveStreamStudioModal from "./components/common/modals/livestream/LiveStreamStudioModal";
 import EmptyState from "./components/common/EmptyState";
 
 import AuthView from "./components/views/auth/AuthView";
@@ -25,7 +26,15 @@ import AssistView from "./components/views/assist/AssistView";
 import { title } from "./utils/formatters";
 
 export default function App() {
-  const { state, activeRoute, activeCall, endActiveCall, showToast } = useApp();
+  const {
+    state,
+    activeRoute,
+    activeCall,
+    endActiveCall,
+    showToast,
+    activeLiveStreamModal,
+    closeLiveStream,
+  } = useApp();
 
   const [page, id] = activeRoute.split("/");
 
@@ -106,8 +115,18 @@ export default function App() {
       <Toast />
       {activeCall && (
         <CallModal
+          call={activeCall}
           callData={activeCall}
           onClose={endActiveCall}
+          onCallEnded={endActiveCall}
+          showToast={showToast}
+        />
+      )}
+      {activeLiveStreamModal && (
+        <LiveStreamStudioModal
+          stream={activeLiveStreamModal.stream}
+          role={activeLiveStreamModal.role}
+          onClose={closeLiveStream}
           showToast={showToast}
         />
       )}

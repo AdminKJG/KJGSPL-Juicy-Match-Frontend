@@ -21,6 +21,8 @@ import { profileService } from "../services/profileService";
 import { callsService } from "../services/callsService";
 import { chatService } from "../services/chatService";
 import { blockService } from "../services/blockService";
+import { livestreamService } from "../services/livestreamService";
+import { socketService } from "../services/socketService";
 import {
   getStoredTokens,
   setStoredTokens,
@@ -265,6 +267,160 @@ export function AppProvider({ children }) {
     activeCallRef.current = activeCall;
   }, [activeCall]);
 
+  // Global Livestream Broadcast State & Discovery
+  const [activeLiveStreams, setActiveLiveStreams] = useState([]);
+  const [activeLiveStreamModal, setActiveLiveStreamModal] = useState(null); // { stream, role: "host" | "viewer" }
+
+  const openLiveStream = useCallback((stream, role = "viewer") => {
+    if (!stream) return;
+    setActiveLiveStreamModal({ stream, role });
+  }, []);
+
+  const closeLiveStream = useCallback(() => {
+    setActiveLiveStreamModal(null);
+  }, []);
+
+  const isPeerLive = useCallback(
+    (target) => {
+      if (!target || !activeLiveStreams || activeLiveStreams.length === 0) return null;
+
+      const targetKeys = new Set();
+
+      if (typeof target === "string" || typeof target === "number") {
+        const str = String(target).trim().toLowerCase();
+        if (str) targetKeys.add(str);
+      } else if (typeof target === "object") {
+        const keys = [
+          target.id,
+          target.peerId,
+          target.hostId,
+          target.userId,
+          target.accountId,
+          target.connectionId,
+          target.pseudonym,
+          target.name,
+          target.username,
+          target.creator,
+          target.hostName,
+          target.peer?.id,
+          target.peer?.pseudonym,
+          target.peer?.name,
+        ];
+        keys.forEach((k) => {
+          if (k) {
+            const clean = String(k).trim().toLowerCase();
+            if (clean) targetKeys.add(clean);
+          }
+        });
+      }
+
+      if (targetKeys.size === 0) return null;
+
+      return (
+        activeLiveStreams.find((s) => {
+          const sKeys = [
+            s.id,
+            s.streamId,
+            s.hostId,
+            s.creatorId,
+            s.creator,
+            s.userId,
+            s.hostName,
+            s.pseudonym,
+            s.creatorName,
+          ];
+          return sKeys.some((k) => {
+            if (!k) return false;
+            return targetKeys.has(String(k).trim().toLowerCase());
+          });
+        }) || null
+      );
+    },
+    [activeLiveStreams]
+  );
+
+  const refreshLiveStreams = useCallback(async () => {
+    if (!state.authenticated) return [];
+    try {
+      const items = await livestreamService.getLiveStreams(state.me);
+      const blocked = blockService.getBlockedMemberIds();
+      const cleanItems = (Array.isArray(items) ? items : []).filter(
+        (s) =>
+          !blocked.includes(String(s.hostId)) &&
+          !blocked.includes(String(s.creatorId)) &&
+          !blocked.includes(String(s.id))
+      );
+      setActiveLiveStreams(cleanItems);
+      return cleanItems;
+    } catch {
+      return [];
+    }
+  }, [state.authenticated, state.me]);
+
+  // Global sync for active live streams
+  useEffect(() => {
+    if (!state.authenticated) return;
+    refreshLiveStreams();
+    const interval = setInterval(refreshLiveStreams, 10000);
+
+    let channel = null;
+    const handleBroadcastData = (data) => {
+      if (!data || !data.type) return;
+      if (data.type === "HOST_STARTED_LIVE") {
+        const streamId = data.streamId || data.id;
+        if (streamId) {
+          const incomingStream = {
+            id: streamId,
+            streamId,
+            title: data.title || "Live Stream",
+            hostName: data.hostName || "Host",
+            hostId: data.hostId,
+            hostPhoto: data.hostPhoto || data.photo,
+            hostPortrait: data.hostPortrait ?? data.portrait ?? 0,
+            viewerCount: data.viewerCount || 1,
+            startedAt: data.startedAt || new Date().toISOString(),
+            state: "live",
+            status: "live",
+          };
+          setActiveLiveStreams((prev) => {
+            const clean = (prev || []).filter((s) => (s.id || s.streamId) !== streamId);
+            return [incomingStream, ...clean];
+          });
+        }
+        refreshLiveStreams();
+      } else if (data.type === "HOST_ENDED_LIVE") {
+        const streamId = data.streamId || data.id;
+        if (streamId) {
+          setActiveLiveStreams((prev) =>
+            (prev || []).filter((s) => (s.id || s.streamId) !== streamId)
+          );
+        }
+        refreshLiveStreams();
+      }
+    };
+
+    try {
+      channel = new BroadcastChannel("jm_live_channel");
+      channel.onmessage = (e) => handleBroadcastData(e.data);
+    } catch {}
+
+    const handleStorage = (e) => {
+      if (e.key === "jm_last_live_event" && e.newValue) {
+        try {
+          const data = JSON.parse(e.newValue);
+          handleBroadcastData(data);
+        } catch {}
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      clearInterval(interval);
+      if (channel) channel.close();
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [state.authenticated, refreshLiveStreams]);
+
   // Unique identifier for this tab instance
   const tabIdRef = useRef(`tab-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
 
@@ -496,23 +652,124 @@ export function AppProvider({ children }) {
     };
     window.addEventListener("storage", handleStorage);
 
-    // Backend Polling every 5s for incoming calls (paused when tab hidden)
+    // ── Real-Time Socket.io Master Integration ──────────────────────────────
+    if (state.authenticated) {
+      socketService.connect();
+    } else {
+      socketService.disconnect();
+    }
+
+    const unCallInc = socketService.on("call:incoming", (data) => {
+      console.log("⚡ [JM Socket] Incoming call event received:", data);
+      if (activeCallRef.current) return;
+
+      const connId = data.connectionId || data.connection_id;
+      const callerObj = data.caller || {};
+      const callerId = callerObj.id || data.callerId || data.caller_id;
+      const callerName = callerObj.pseudonym || callerObj.name || data.callerName || "Match";
+
+      setActiveCall({
+        id: data.callId || data.id || `call-${Date.now()}`,
+        connectionId: connId,
+        medium: data.kind || data.medium || "audio",
+        peer: {
+          id: callerId,
+          pseudonym: callerName,
+          portrait: callerObj.avatarUrl || callerObj.portrait || callerObj.photo,
+          photo: callerObj.photo || callerObj.avatarUrl,
+        },
+        isIncoming: true,
+        initialStatus: "ringing",
+        state: "invited",
+        caller: callerId,
+      });
+
+      try {
+        playSound("call");
+      } catch {}
+    });
+
+    const unCallAcc = socketService.on("call:accepted", (data) => {
+      console.log("⚡ [JM Socket] Call accepted event:", data);
+      if (activeCallRef.current) {
+        setActiveCall((prev) => (prev ? { ...prev, state: "accepted", initialStatus: "connected" } : null));
+      }
+    });
+
+    const unCallDec = socketService.on("call:declined", (data) => {
+      console.log("⚡ [JM Socket] Call declined event:", data);
+      if (activeCallRef.current) {
+        showToast("Call declined");
+        setActiveCall(null);
+      }
+    });
+
+    const unCallEnd = socketService.on("call:ended", (data) => {
+      console.log("⚡ [JM Socket] Call ended event:", data);
+      if (activeCallRef.current) {
+        showToast("Call ended");
+        setActiveCall(null);
+      }
+    });
+
+    const unMatch = socketService.on("match:created", (data) => {
+      console.log("⚡ [JM Socket] Mutual Match Created:", data);
+      const matchedWith = data.matchedWith || {};
+      showToast(`🎉 It's a Mutual Match with ${matchedWith.pseudonym || "someone special"}!`);
+      try {
+        playSound("match");
+      } catch {}
+    });
+
+    const unNotif = socketService.on("notification:received", (data) => {
+      console.log("⚡ [JM Socket] Notification received:", data);
+      if (data.title || data.body) {
+        showToast(`🔔 ${data.title ? `${data.title}: ` : ""}${data.body || "New notification"}`);
+      }
+      setState((prev) => ({
+        ...prev,
+        notifications: [
+          {
+            id: data.id || `notif-${Date.now()}`,
+            kind: data.kind || "system",
+            title: data.title || "Notification",
+            body: data.body || "",
+            created_at: data.createdAt || new Date().toISOString(),
+            read: false,
+          },
+          ...(prev.notifications || []),
+        ],
+      }));
+    });
+
+    const unPhotoReq = socketService.on("photo_request:received", (data) => {
+      console.log("⚡ [JM Socket] Photo request received:", data);
+      showToast(`📸 ${data.requesterName || "A match"} requested access to your private photos.`);
+    });
+
+    const unPhotoRes = socketService.on("photo_request:resolved", (data) => {
+      console.log("⚡ [JM Socket] Photo request resolved:", data);
+      if (data.status === "approved") {
+        showToast("📸 Private photo access request was approved!");
+      }
+    });
+
+    const unTravel = socketService.on("travel_invite:received", (data) => {
+      console.log("⚡ [JM Socket] Travel invite received:", data);
+      showToast(`✈️ New travel invitation received for ${data.city || "a destination"}!`);
+    });
+
+    // Low-frequency 30s background fallback check for missed calls
     const pollTimer = setInterval(async () => {
-      if (document.hidden || activeCallRef.current) return;
+      if (document.hidden || activeCallRef.current || socketService.isConnected) return;
       try {
         const myId = state.me?.id;
         const myPseudonym = (state.me?.profile?.pseudonym || "").trim().toLowerCase();
-        console.log("[JM Call Poll] My identity → id:", myId, "| pseudonym:", myPseudonym);
 
         const TERMINATED = new Set(["ended", "declined", "cancelled", "missed", "completed", "closed", "rejected", "expired"]);
         const isRinging = (s) => {
           const str = String(s || "").toLowerCase();
           return str === "ringing" || str === "invited" || str === "initiated" || str === "calling" || str === "pending" || str === "active";
-        };
-        const isMyCaller = (c) => {
-          const callerName = String(c.callerName || c.caller_name || c.caller?.pseudonym || c.caller?.name || "").trim().toLowerCase();
-          const callerId = c.callerId || c.caller_id || c.caller?.id || (typeof c.caller === "string" ? c.caller : null);
-          return (callerId && myId && callerId === myId) || (callerName && myPseudonym && callerName === myPseudonym);
         };
         const parseList = (res) => {
           const raw = Array.isArray(res) ? res : res?.items || res?.calls || res?.data?.items || res?.data || res?.active || [];
@@ -528,18 +785,13 @@ export function AppProvider({ children }) {
             photo: c.callerPhoto || c.caller_photo,
           };
 
-        // ── Stage 1: Active/ringing filtered endpoints ─────────────────────
         const activeRes = await callsService.getCalls().catch(() => null);
         const activeList = parseList(activeRes);
 
         if (activeList.length > 0) {
-          console.log("[JM Call Poll] Active calls found:", activeList.map(c => ({
-            id: c.id, state: c.state || c.status, caller: c.caller || c.caller_id, created: c.created_at || c.createdAt
-          })));
           const found = activeList.find((c) => isRinging(c.state || c.status) && isCallForMe(c) && !isCallFromMe(c));
           if (found && !activeCallRef.current) {
             const connId = found.connectionId || found.connection_id;
-            console.log("[JM Call] ✅ Incoming call for me (Stage 1):", found);
             setActiveCall({
               id: found.id,
               connectionId: connId,
@@ -547,86 +799,15 @@ export function AppProvider({ children }) {
               peer: buildPeer(found, connId),
               isIncoming: true,
               initialStatus: "ringing",
+              state: found.state || "invited",
+              caller: found.caller || found.caller_id,
+              receiver: found.receiver || found.receiver_id,
             });
             return;
-          }
-        }
-
-        // ── Stage 2: Full history — check most recent call by created_at ───
-        const allRes = await callsService.getAllCalls().catch(() => null);
-        const allList = parseList(allRes);
-
-        if (allList.length > 0) {
-          // Sort by creation time descending to find newest
-          const sorted = [...allList].sort((a, b) => {
-            const ta = new Date(a.created_at || a.createdAt || 0).getTime();
-            const tb = new Date(b.created_at || b.createdAt || 0).getTime();
-            return tb - ta;
-          });
-
-          // Log first 3 most recent for debugging
-          console.log("[JM Call Poll] Most recent calls:", sorted.slice(0, 3).map(c => ({
-            id: c.id, state: c.state || c.status, caller: c.caller || c.caller_id,
-            created: c.created_at || c.createdAt, terminated: TERMINATED.has(String(c.state || c.status || "").toLowerCase())
-          })));
-
-          const RECENCY_MS = 90 * 1000; // 90 seconds window
-          const recent = sorted.find((c) => {
-            const st = String(c.state || c.status || "").toLowerCase();
-            if (TERMINATED.has(st)) return false; // explicitly ended
-            const created = new Date(c.created_at || c.createdAt || 0).getTime();
-            if (Date.now() - created > RECENCY_MS) return false; // too old
-            if (isCallFromMe(c)) return false; // I placed this call
-            if (!isCallForMe(c)) return false; // Not meant for me
-            return true;
-          });
-
-          if (recent && !activeCallRef.current) {
-            const connId = recent.connectionId || recent.connection_id;
-            console.log("[JM Call] ✅ Incoming call (Stage 2 - recency):", recent);
-            setActiveCall({
-              id: recent.id,
-              connectionId: connId,
-              medium: recent.medium || "audio",
-              peer: buildPeer(recent, connId),
-              isIncoming: true,
-              initialStatus: "ringing",
-            });
-            return;
-          }
-        }
-
-        // 2. Check connections for active incoming call messages
-        const connsRes = await chatService.getConnections().catch(() => null);
-        const connsList = Array.isArray(connsRes) ? connsRes : connsRes?.items || connsRes?.data?.items || [];
-        if (Array.isArray(connsList) && connsList.length > 0) {
-          for (const conn of connsList) {
-            const lastMsg = conn.lastMessage || conn.last_message;
-            if (lastMsg) {
-              const body = typeof lastMsg.body === "string" ? lastMsg.body : lastMsg.body?.body || "";
-              const isCall = lastMsg.kind === "call" || body.toLowerCase().includes("call");
-              const isTerminated = /cancel|miss|end|decline|reject/i.test(body) || ["ended", "cancelled", "declined", "missed"].includes(lastMsg.status);
-              const isFromPeer = !isCallFromMe(lastMsg) && isCallForMe(lastMsg);
-              const msgTime = new Date(lastMsg.createdAt || lastMsg.created_at || Date.now()).getTime();
-              const isRecent = (Date.now() - msgTime) < 45000;
-
-              if (isCall && !isTerminated && isFromPeer && isRecent && !activeCallRef.current) {
-                const isVideo = body.toLowerCase().includes("video");
-                setActiveCall({
-                  id: lastMsg.callId || lastMsg.id || `call-${Date.now()}`,
-                  connectionId: conn.id,
-                  medium: isVideo ? "video" : "audio",
-                  peer: conn.peer || { pseudonym: "Match" },
-                  isIncoming: true,
-                  initialStatus: "ringing",
-                });
-                break;
-              }
-            }
           }
         }
       } catch {}
-    }, 5000);
+    }, 30000);
 
     return () => {
       if (callsChannel) {
@@ -634,6 +815,15 @@ export function AppProvider({ children }) {
       }
       window.removeEventListener("storage", handleStorage);
       clearInterval(pollTimer);
+      unCallInc();
+      unCallAcc();
+      unCallDec();
+      unCallEnd();
+      unMatch();
+      unNotif();
+      unPhotoReq();
+      unPhotoRes();
+      unTravel();
     };
   }, [state.authenticated, isCallFromMe, isCallForMe]);
 
@@ -750,9 +940,19 @@ export function AppProvider({ children }) {
         return null;
       });
 
-      if (callRes?.id) {
-        setActiveCall((prev) => (prev && prev.id === tempCallId ? { ...prev, id: callRes.id } : prev));
-        const updatedPayload = { ...callPayload, callId: callRes.id };
+      const realId = callRes?.id || callRes?.data?.id;
+      if (realId) {
+        setActiveCall((prev) =>
+          prev
+            ? {
+                ...prev,
+                ...(callRes || {}),
+                id: realId,
+                state: callRes?.state || "invited",
+              }
+            : prev
+        );
+        const updatedPayload = { ...callPayload, callId: realId };
         try { new BroadcastChannel("jm_calls_channel").postMessage(updatedPayload); } catch {}
         try { localStorage.setItem("jm_last_call_event", JSON.stringify({ ...updatedPayload, _salt: Math.random() })); } catch {}
       }
@@ -1395,6 +1595,12 @@ export function AppProvider({ children }) {
     startCall,
     endActiveCall,
     blockMember,
+    activeLiveStreams,
+    activeLiveStreamModal,
+    openLiveStream,
+    closeLiveStream,
+    isPeerLive,
+    refreshLiveStreams,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

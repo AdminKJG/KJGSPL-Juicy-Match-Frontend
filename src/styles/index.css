@@ -45,3 +45,132 @@ body {
     @apply w-6 h-6 inline-block shrink-0;
   }
 }
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+  }
+}
+
+aside::-webkit-scrollbar {
+  display: none !important;
+}
+aside {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+/* ── Calling System Animations ── */
+@keyframes rippleOut {
+  0%   { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+@keyframes pulseGlow {
+  from { box-shadow: 0 0 20px rgba(233, 22, 113, 0.3); }
+  to   { box-shadow: 0 0 50px rgba(233, 22, 113, 0.7); }
+}
+
+@keyframes bounceUp {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
+
+@keyframes pulseSubtle {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.06); }
+}
+
+.animate-ripple {
+  animation: rippleOut 2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 1.5s ease-in-out infinite alternate;
+}
+
+.animate-bounce-up {
+  animation: bounceUp 1.4s ease-in-out infinite;
+}
+
+.animate-pulse-subtle {
+  animation: pulseSubtle 2s ease-in-out infinite;
+}
+
+/* ── Live Streaming Floating Reaction Animations ── */
+@keyframes floatDrift {
+  0% {
+    transform: translateY(0) scale(0.6) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(-20px) scale(1.1) rotate(-6deg);
+  }
+  50% {
+    transform: translateY(-160px) scale(1) rotate(8deg);
+  }
+  80% {
+    opacity: 0.9;
+    transform: translateY(-320px) scale(0.95) rotate(-10deg);
+  }
+  100% {
+    transform: translateY(-480px) scale(0.8) rotate(14deg);
+    opacity: 0;
+  }
+}
+
+.animate-float-drift {
+  animation: floatDrift 2.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+/* ── Instagram-Style Live Pulse Ring Animations ── */
+@keyframes liveRingPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px #e91671, 0 0 10px rgba(233, 22, 113, 0.7);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 3.5px #ff2a85, 0 0 20px rgba(255, 42, 133, 0.95);
+    transform: scale(1.02);
+  }
+}
+
+@keyframes liveGradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.live-avatar-ring {
+  position: relative;
+  border-radius: 9999px;
+  padding: 2.5px;
+  background: linear-gradient(45deg, #e91671, #ff2a85, #f43f5e, #fb7185, #a855f7);
+  background-size: 250% 250%;
+  animation: liveRingPulse 2s ease-in-out infinite, liveGradientShift 3s ease infinite;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.live-badge-pill {
+  background: linear-gradient(135deg, #e11d48 0%, #e91671 100%);
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  box-shadow: 0 2px 6px rgba(233, 22, 113, 0.6);
+  border: 1.5px solid #1a0d20;
+}
+
+

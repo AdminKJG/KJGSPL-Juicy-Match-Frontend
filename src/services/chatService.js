@@ -176,16 +176,31 @@ export const chatService = {
   sendVoiceNote: async (connectionId, mediaId, extraMeta = {}) => {
     const clientId = extraMeta.clientId || `client-voice-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const myId = extraMeta.senderId || getCurrentUserIdFromToken() || "me";
+    const mediaPath = mediaId ? (String(mediaId).startsWith("/v1/media/") ? mediaId : `/v1/media/${mediaId}`) : "";
+    const wireBody = mediaPath ? `[voice:${mediaPath}]` : "🎙️ Voice note";
     let serverRes = null;
 
     try {
-      serverRes = await request(`/connections/${connectionId}/voice`, {
+      serverRes = await request(`/connections/${connectionId}/messages`, {
         method: "POST",
-        body: { clientId, mediaId },
+        body: {
+          clientId,
+          body: wireBody,
+          kind: "voice",
+          mediaId: mediaId || null,
+        },
         auth: true,
       });
-    } catch (err) {
-      console.warn("Voice note backend note:", err.message);
+    } catch (msgErr) {
+      try {
+        serverRes = await request(`/connections/${connectionId}/voice`, {
+          method: "POST",
+          body: { clientId, mediaId },
+          auth: true,
+        });
+      } catch (err) {
+        console.warn("Voice note backend note:", err.message);
+      }
     }
 
     const createdMsg = {
@@ -193,13 +208,24 @@ export const chatService = {
       clientId,
       sender: serverRes?.sender || myId,
       kind: "voice",
-      mediaUrl: extraMeta.previewUrl,
+      body: serverRes?.body || wireBody,
+      mediaId: mediaId || serverRes?.mediaId || null,
+      mediaUrl: extraMeta.previewUrl || serverRes?.mediaUrl || (mediaId ? `/v1/media/${mediaId}` : null),
       fileName: extraMeta.fileName || "Voice Note",
       fileSize: extraMeta.fileSize,
       createdAt: serverRes?.createdAt || serverRes?.created_at || new Date().toISOString(),
       read: false,
       ...(serverRes || {}),
     };
+
+    if (extraMeta.previewUrl) {
+      try {
+        localStorage.setItem(`jm_media_cache_${createdMsg.id}`, extraMeta.previewUrl);
+        if (clientId) localStorage.setItem(`jm_media_cache_${clientId}`, extraMeta.previewUrl);
+        if (mediaId) localStorage.setItem(`jm_media_cache_${mediaId}`, extraMeta.previewUrl);
+        localStorage.setItem("jm_last_media_sent", extraMeta.previewUrl);
+      } catch {}
+    }
 
     const keys = [connectionId];
     if (extraMeta.peerId) {
@@ -215,7 +241,7 @@ export const chatService = {
     try {
       await request(`/connections/${connectionId}/messages/${messageId}`, {
         method: "PATCH",
-        body: { body: newBody },
+        body: { body: newBody, text: newBody },
         auth: true,
       });
     } catch {}
@@ -243,7 +269,7 @@ export const chatService = {
     try {
       await request(`/connections/${connectionId}/messages/${messageId}`, {
         method: "DELETE",
-        body: { deleteForEveryone },
+        body: { mode: deleteForEveryone ? "everyone" : "me" },
         auth: true,
       });
     } catch {}
@@ -300,7 +326,7 @@ export const chatService = {
     try {
       await request(`/connections/${connectionId}/messages/${messageId}/reaction`, {
         method: "POST",
-        body: { emoji },
+        body: { emoji: emoji || null },
         auth: true,
       });
     } catch {}
@@ -310,11 +336,24 @@ export const chatService = {
     if (peerId && myId) keys.push([myId, peerId].sort().join("::"));
     keys.forEach((k) => {
       if (Array.isArray(store[k])) {
-        store[k] = store[k].map((m) =>
-          m.id === messageId || m.clientId === messageId
-            ? { ...m, reaction: emoji, reactionCount: (Number(m.reactionCount) || 0) + 1 }
-            : m
-        );
+        store[k] = store[k].map((m) => {
+          if (m.id !== messageId && m.clientId !== messageId) return m;
+          const isRemoving = !emoji || m.reaction === emoji;
+          const newEmoji = isRemoving ? null : emoji;
+          let newReactions = { ...(m.reactions || (m.reaction ? { [m.reaction]: 1 } : {})) };
+          if (m.reaction && newReactions[m.reaction]) {
+            newReactions[m.reaction] = Math.max(0, (newReactions[m.reaction] || 1) - 1);
+            if (newReactions[m.reaction] === 0) delete newReactions[m.reaction];
+          }
+          if (newEmoji) {
+            newReactions[newEmoji] = (newReactions[newEmoji] || 0) + 1;
+          }
+          return {
+            ...m,
+            reaction: newEmoji,
+            reactions: Object.keys(newReactions).length > 0 ? newReactions : null,
+          };
+        });
       }
     });
     try {
