@@ -64,6 +64,12 @@ export default function IncomingRinging({ callState, sizeMode = "compact", onClo
         <p className="text-[#cdafc4] text-base font-normal mt-2 tracking-wide">
           {isVideo ? "Incoming Video Call…" : "Incoming Voice Call…"}
         </p>
+
+        {/* Receiver Free Badge */}
+        <div className="mt-2.5 px-3.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-xs text-emerald-300 font-bold flex items-center gap-1.5 backdrop-blur-md shadow-md">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span>🎁 Free Call for You · 0 FC</span>
+        </div>
       </div>
 
       {/* Bottom Accept / Decline Action Group */}

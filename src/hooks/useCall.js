@@ -13,6 +13,7 @@ export function useCall(initialCall) {
   const [mic, setMic] = useState(true);
   const [camera, setCamera] = useState(true);
   const [speakerOn, setSpeakerOn] = useState(true);
+  const [callReceipt, setCallReceipt] = useState(null);
 
   const pollRef = useRef(null);
   const durationRef = useRef(null);
@@ -156,6 +157,9 @@ export function useCall(initialCall) {
 
       if (updated && updated.id) {
         setCall(updated);
+        if (updated.fc_charged !== undefined || updated.billed_minutes !== undefined) {
+          setCallReceipt(updated);
+        }
       } else {
         const nextState = action === "accept" ? "accepted" : action === "decline" ? "declined" : "ended";
         setCall((prev) => (prev ? { ...prev, state: nextState } : { state: nextState }));
@@ -243,6 +247,9 @@ export function useCall(initialCall) {
           ...prev,
           state: "ended",
         }));
+        if (data.fc_charged !== undefined || data.billed_minutes !== undefined) {
+          setCallReceipt(data);
+        }
         if (durationRef.current) {
           clearInterval(durationRef.current);
           durationRef.current = null;
@@ -355,6 +362,7 @@ export function useCall(initialCall) {
     camera,
     speakerOn,
     callSeconds,
+    callReceipt,
     formatTime,
     toggleMic,
     toggleCamera,

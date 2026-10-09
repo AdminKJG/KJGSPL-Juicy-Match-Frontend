@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { playRingtone } from "../../utils/formatters";
+import { useApp } from "../../context/AppContext";
 
 export default function OutgoingRinging({ callState, sizeMode = "compact", onCancel }) {
+  const { state } = useApp();
   const { call, performAction } = callState;
   const peer = call?.peer || {};
   const peerName = peer.pseudonym || peer.name || "Member";
@@ -126,6 +128,17 @@ export default function OutgoingRinging({ callState, sizeMode = "compact", onCan
           <span className="w-2.5 h-2.5 rounded-full bg-[#e91671] animate-ping" />
           Ringing…
         </p>
+
+        {/* Feature Credits Rate Preview */}
+        <div className="mt-3 px-3.5 py-1.5 rounded-full bg-black/50 border border-white/15 text-xs text-white/90 flex items-center gap-2 backdrop-blur-md shadow-md">
+          <span className="text-amber-400 font-bold flex items-center gap-1">
+            ⚡ {state.wallet?.featureCredits ?? 100} FC
+          </span>
+          <span className="text-white/30">·</span>
+          <span>Rate: {isVideo ? "15" : "5"} FC/min</span>
+          <span className="text-white/30">·</span>
+          <span className="text-pink text-[11px] font-semibold">Caller Billed</span>
+        </div>
       </div>
 
       {/* Bottom Actions */}

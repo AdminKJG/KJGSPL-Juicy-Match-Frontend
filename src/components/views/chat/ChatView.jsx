@@ -6,30 +6,19 @@ import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 import ContactDrawer from "./ContactDrawer";
 import EmojiShower from "./EmojiShower";
-import AuthImage, { blobUrlCache } from "./AuthImage";
-import {
-  DeleteModalContent,
-  BlockModalContent,
-  ReportModalContent,
-  RequestPhotoModalContent,
-  ClearConversationModalContent,
-  AIStartersModalContent,
-} from "./modals/ChatModals";
+import MutualConsentBanner from "./MutualConsentBanner";
+import AuthImage from "./AuthImage";
 import { useChatEffects } from "./hooks/useChatEffects";
 import { useVoiceRecorder } from "./hooks/useVoiceRecorder";
 import { useChatSync } from "./hooks/useChatSync";
-import {
-  getLastMessageSnippet,
-  getPeerOnlineStatus,
-  formatBytes,
-  isWithinTimeLimit,
-} from "./chatUtils";
+import { useBotSync } from "./hooks/useBotSync";
+import { useChatMessages } from "./hooks/useChatMessages";
+import { useChatActions } from "./hooks/useChatActions.jsx";
+import { useSendMessage } from "./hooks/useSendMessage";
+import { getLastMessageSnippet, formatBytes } from "./chatUtils";
 import { useApp } from "../../../context/AppContext";
-import { chatService, saveLocalChatMessage, getLocalChatStore } from "../../../services/chatService";
-import { mediaService } from "../../../services/mediaService";
-import { aiService } from "../../../services/aiService";
+import { chatService } from "../../../services/chatService";
 import { blockService } from "../../../services/blockService";
-import { getCurrentUserIdFromToken } from "../../../services/api";
 import { socketService } from "../../../services/socketService";
 
 export { AuthImage };
@@ -44,6 +33,7 @@ export default function ChatView({ connectionId: propConnectionId }) {
     triggerSound,
     startCall,
     blockMember,
+    giveChatConsent,
   } = useApp();
 
   // Tab & Tracking References
@@ -52,13 +42,12 @@ export default function ChatView({ connectionId: propConnectionId }) {
   const prevMsgReactionsRef = useRef({});
   const isInitialLoadRef = useRef(true);
   const mySentClientIdsRef = useRef(new Set());
-  const currentAudioElRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   // Hidden File & Composer Inputs
   const galleryInputRef = useRef(null);
   const fileInputRef = useRef(null);
   const audioInputRef = useRef(null);
-  const textInputRef = useRef(null);
 
   // Conversations / Contacts State
   const [connections, setConnections] = useState([]);
@@ -67,10 +56,20 @@ export default function ChatView({ connectionId: propConnectionId }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
 
+  // Composer & Menu State
+  const [inputBody, setInputBody] = useState("");
+  const [replyTo, setReplyTo] = useState(null);
+  const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showEmojiDrawer, setShowEmojiDrawer] = useState(false);
+  const [openDropdownMsgId, setOpenDropdownMsgId] = useState(null);
+  const [lightboxImage, setLightboxImage] = useState(null);
+  const [isPeerTyping, setIsPeerTyping] = useState(false);
+
   // Find currently active connection
   const activeConn =
-    connections.find((c) => c.id === selectedConnId) ||
-    state.connections?.find((c) => c.id === selectedConnId) ||
+    connections.find((c) => c.id === selectedConnId || c.connectionId === selectedConnId) ||
+    state.connections?.find((c) => c.id === selectedConnId || c.connectionId === selectedConnId) ||
     (connections.length > 0 ? connections[0] : null);
 
   // Filtered connections list according to search and active tab
@@ -94,30 +93,7 @@ export default function ChatView({ connectionId: propConnectionId }) {
     return true;
   });
 
-  // Active Chat Message State
-  const [messages, setMessages] = useState([]);
-  const [loadingMsgs, setLoadingMsgs] = useState(false);
-  const [inputBody, setInputBody] = useState("");
-  const [sending, setSending] = useState(false);
-  const [replyTo, setReplyTo] = useState(null);
-  const [editingMsgId, setEditingMsgId] = useState(null);
-  const [pendingAttachment, setPendingAttachment] = useState(null);
-
-  // Attachment & Popup Menus
-  const [showAttachMenu, setShowAttachMenu] = useState(false);
-  const [showEmojiDrawer, setShowEmojiDrawer] = useState(false);
-  const [openDropdownMsgId, setOpenDropdownMsgId] = useState(null);
-  const [showContactPanel, setShowContactPanel] = useState(false);
-  const [playingAudioId, setPlayingAudioId] = useState(null);
-  const [lightboxImage, setLightboxImage] = useState(null);
-
-  // Telegram-style Floating Emoji Shower Effects
-  const { floatingParticles, triggerEmojiShower } = useChatEffects({
-    triggerSound,
-    activeConnId: activeConn?.id,
-  });
-
-  // Initialize client IDs memory
+  // Client ID tracker for sent messages
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem("jm_my_sent_client_ids");
@@ -135,10 +111,101 @@ export default function ChatView({ connectionId: propConnectionId }) {
     } catch {}
   };
 
-  const [isPeerTyping, setIsPeerTyping] = useState(false);
-  const typingTimeoutRef = useRef(null);
+  // Telegram-style Floating Emoji Shower Effects
+  const { floatingParticles, triggerEmojiShower } = useChatEffects({
+    triggerSound,
+    activeConnId: activeConn?.id,
+  });
 
-  // Multi-tab, Socket.io & Receiver real-time synchronization
+  // Dedicated Chat Messages Hook
+  const {
+    messages,
+    setMessages,
+    loadingMsgs,
+    loadMessages,
+  } = useChatMessages({
+    activeConn,
+    state,
+    tabIdRef,
+    setConnections,
+    isInitialLoadRef,
+    seenMsgIdsRef,
+    prevMsgReactionsRef,
+    setIsPeerTyping,
+  });
+
+  // Dedicated Chat Actions Hook (Audio, Reactions, Edits, Deletion, Modals)
+  const {
+    playingAudioId,
+    editingMsgId,
+    setEditingMsgId,
+    showContactPanel,
+    setShowContactPanel,
+    handleToggleAudio,
+    handleReaction,
+    handleStartEdit,
+    handleSaveEdit,
+    openDeleteModal,
+    handleOpenContactInfo,
+    handleBlockUser,
+    handleReportUser,
+    handleClearConversation,
+    handleVoiceRecordingComplete,
+  } = useChatActions({
+    activeConn,
+    state,
+    tabIdRef,
+    messages,
+    setMessages,
+    openModal,
+    closeModal,
+    showToast,
+    blockMember,
+    loadConnections: () => loadConnections(),
+    triggerEmojiShower,
+    markAsMySentMessage,
+    setInputBody,
+    setReplyTo,
+    setPendingAttachment,
+    setOpenDropdownMsgId,
+  });
+
+  // Dedicated Send Message Hook
+  const { sending, handleSend } = useSendMessage({
+    activeConn,
+    state,
+    tabIdRef,
+    setMessages,
+    setConnections,
+    triggerSound,
+    markAsMySentMessage,
+    inputBody,
+    setInputBody,
+    replyTo,
+    setReplyTo,
+    pendingAttachment,
+    setPendingAttachment,
+    setShowAttachMenu,
+    setShowEmojiDrawer,
+    typingTimeoutRef,
+    editingMsgId,
+    setEditingMsgId,
+    handleSaveEdit,
+  });
+
+  // Voice recording hook
+  const {
+    isRecording,
+    recordingSeconds,
+    startRecording,
+    stopAndSendRecording,
+    cancelRecording,
+  } = useVoiceRecorder({
+    onRecordingComplete: handleVoiceRecordingComplete,
+    showToast,
+  });
+
+  // Multi-tab, Socket.io & Receiver real-time synchronisation (human peers)
   useChatSync({
     tabId: tabIdRef.current,
     activeConn,
@@ -151,42 +218,87 @@ export default function ChatView({ connectionId: propConnectionId }) {
     onPeerTypingChange: setIsPeerTyping,
   });
 
-  // 1. Fetch Conversations / Connections List
-  const loadConnections = async () => {
-    setLoadingConns(true);
+  // Bot-peer socket event integration (bot_typing + bot_message aliases)
+  useBotSync({
+    activeConn,
+    setMessages,
+    setConnections,
+    onPeerTypingChange: setIsPeerTyping,
+  });
+
+  // 1. Fetch Conversations / Connections List (normalizes both id and connectionId)
+  const loadConnections = async (isBackground = false) => {
+    if (!isBackground) setLoadingConns(true);
     try {
       const res = await chatService.getConnections();
       const list = Array.isArray(res) ? res : (res?.items || res?.data?.items || res?.data || []);
+      const normalizedList = list.map((c) => {
+        const validId = c.id || c.connectionId || c.connection_id;
+        return {
+          ...c,
+          id: validId,
+          connectionId: validId,
+        };
+      });
+
       const blocked = blockService.getBlockedMemberIds();
-      const cleanList = list.filter(
+      const cleanList = normalizedList.filter(
         (c) =>
           !blocked.includes(String(c.peer?.id)) &&
           !blocked.includes(String(c.id)) &&
           c.status !== "blocked"
       );
-      const fallbackConns = state.connections && state.connections.length > 0 ? state.connections : [];
+
+      const fallbackConns = (state.connections && state.connections.length > 0 ? state.connections : []).map((c) => {
+        const validId = c.id || c.connectionId || c.connection_id;
+        return { ...c, id: validId, connectionId: validId };
+      });
       const finalConnections = cleanList.length > 0 ? cleanList : fallbackConns;
 
-      setConnections(finalConnections);
-      if (finalConnections.length > 0 && (!selectedConnId || !finalConnections.some((c) => c.id === selectedConnId))) {
+      setConnections((prev) => {
+        if (isBackground && prev.length > 0) {
+          return finalConnections.map((fc) => {
+            const existing = prev.find((p) => p.id === fc.id);
+            return existing ? { ...fc, unreadCount: existing.unreadCount ?? fc.unreadCount } : fc;
+          });
+        }
+        return finalConnections;
+      });
+
+      if (!isBackground && finalConnections.length > 0 && (!selectedConnId || !finalConnections.some((c) => c.id === selectedConnId))) {
         setSelectedConnId(finalConnections[0].id);
-      } else if (finalConnections.length === 0) {
+      } else if (!isBackground && finalConnections.length === 0) {
         setSelectedConnId(null);
       }
     } catch (err) {
       console.warn("Connections error:", err.message);
-      const fallbackConns = state.connections && state.connections.length > 0 ? state.connections : [];
-      setConnections(fallbackConns);
-      if (fallbackConns.length > 0 && !selectedConnId) {
-        setSelectedConnId(fallbackConns[0].id);
+      if (!isBackground) {
+        const fallbackConns = (state.connections && state.connections.length > 0 ? state.connections : []).map((c) => {
+          const validId = c.id || c.connectionId || c.connection_id;
+          return { ...c, id: validId, connectionId: validId };
+        });
+        setConnections(fallbackConns);
+        if (fallbackConns.length > 0 && !selectedConnId) {
+          setSelectedConnId(fallbackConns[0].id);
+        }
       }
     } finally {
-      setLoadingConns(false);
+      if (!isBackground) {
+        setLoadingConns(false);
+      }
     }
   };
 
   useEffect(() => {
-    loadConnections();
+    socketService.connect();
+    loadConnections(false);
+
+    const connsTimer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      loadConnections(true);
+    }, 8000);
+
+    return () => clearInterval(connsTimer);
   }, []);
 
   // Listen for block events across tabs/windows
@@ -218,538 +330,31 @@ export default function ChatView({ connectionId: propConnectionId }) {
     }
   }, [propConnectionId]);
 
-  // 2. Fetch Messages for Active Connection
-  const loadMessages = async (isBackground = false) => {
-    if (!activeConn?.id) {
-      setMessages([]);
-      return;
-    }
-    if (!isBackground) {
-      setLoadingMsgs(true);
-    }
-
+  // Mutual chat consent acceptance
+  const handleAcceptConsent = async () => {
+    if (!activeConn?.id) return;
     try {
-      const tokenUid = (typeof getCurrentUserIdFromToken === "function" ? getCurrentUserIdFromToken() : "") || "";
-      const myId = state.me?.id || state.me?.account?.id || tokenUid || "me";
-      const peerId = activeConn.peer?.id;
-      const res = await chatService.getMessages(activeConn.id, peerId, myId).catch(() => null);
-      const list = Array.isArray(res) ? res : (res?.items || res?.data?.items || res?.data || res?.messages || []);
-
-      let localStateMsgs = state.messages?.[activeConn.id] || [];
-      try {
-        const saved = localStorage.getItem("juicy_match_state_v1");
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed.messages?.[activeConn.id])) {
-            localStateMsgs = parsed.messages[activeConn.id];
-          }
-        }
-      } catch {}
-
-      const combined = [...list];
-      if (localStateMsgs.length > 0) {
-        localStateMsgs.forEach((lm) => {
-          if (!combined.some((cm) => cm.id === lm.id || (lm.clientId && cm.clientId === lm.clientId))) {
-            combined.push(lm);
-          }
-        });
-      }
-
-      combined.forEach((m) => {
-        seenMsgIdsRef.current.add(m.id);
-        if (m.reaction) {
-          prevMsgReactionsRef.current[m.id] = m.reaction;
-        }
-      });
-      isInitialLoadRef.current = false;
-
-      setMessages((prev) => {
-        const serverIds = new Set(combined.map((m) => m.id));
-        const serverClientIds = new Set(combined.map((m) => m.clientId || m.client_id).filter(Boolean));
-
-        const mediaMap = new Map();
-        prev.forEach((p) => {
-          const pMedia = p.mediaUrl || p.media_url;
-          if (pMedia || p.fileName || p.fileSize || p.kind === "photo" || p.kind === "video" || p.kind === "voice" || p.kind === "file") {
-            if (p.id) mediaMap.set(p.id, p);
-            if (p.clientId) mediaMap.set(p.clientId, p);
-            if (p.client_id) mediaMap.set(p.client_id, p);
-            if (p.mediaId) mediaMap.set(p.mediaId, p);
-            if (p.media_id) mediaMap.set(p.media_id, p);
-          }
-        });
-
-        try {
-          const store = getLocalChatStore();
-          const connStore = [
-            ...(store[activeConn.id] || []),
-            ...(peerId ? (store[[myId, peerId].sort().join("::")] || []) : []),
-            ...(peerId ? (store[peerId] || []) : []),
-          ];
-          connStore.forEach((p) => {
-            const pMedia = p.mediaUrl || p.media_url;
-            if (pMedia || p.fileName || p.fileSize || p.kind === "photo" || p.kind === "video" || p.kind === "voice" || p.kind === "file") {
-              if (p.id) mediaMap.set(p.id, p);
-              if (p.clientId) mediaMap.set(p.clientId, p);
-              if (p.client_id) mediaMap.set(p.client_id, p);
-              if (p.mediaId) mediaMap.set(p.mediaId, p);
-              if (p.media_id) mediaMap.set(p.media_id, p);
-            }
-          });
-        } catch {}
-
-        const mappedServer = combined.map((m) => {
-          const cId = m.clientId || m.client_id || null;
-          const rawB = typeof m.body === "string" ? m.body : "";
-          const tagMatch = rawB.match(/\[(photo|image|video|media|voice|audio):([\s\S]+?)\]/i);
-          const uuidMatch = (rawB + " " + (m.mediaId || m.media_id || "")).match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
-          const mediaUuid = uuidMatch ? uuidMatch[1] : null;
-          const isVoiceKind = m.kind === "voice" || m.kind === "audio" || (tagMatch && (tagMatch[1].toLowerCase() === "voice" || tagMatch[1].toLowerCase() === "audio")) || rawB.includes("Voice note");
-
-          const preserved =
-            mediaMap.get(m.id) ||
-            (cId ? mediaMap.get(cId) : null) ||
-            (mediaUuid ? mediaMap.get(mediaUuid) : null) ||
-            (m.mediaId ? mediaMap.get(m.mediaId) : null) ||
-            (m.media_id ? mediaMap.get(m.media_id) : null) ||
-            null;
-
-          let localMediaUrl = null;
-          try {
-            localMediaUrl =
-              (mediaUuid ? localStorage.getItem(`jm_media_cache_${mediaUuid}`) : null) ||
-              (cId ? localStorage.getItem(`jm_media_cache_${cId}`) : null) ||
-              (m.id ? localStorage.getItem(`jm_media_cache_${m.id}`) : null) ||
-              (m.mediaId ? localStorage.getItem(`jm_media_cache_${m.mediaId}`) : null) ||
-              (m.media_id ? localStorage.getItem(`jm_media_cache_${m.media_id}`) : null);
-          } catch {}
-
-          let effectiveMediaUrl = localMediaUrl || m.mediaUrl || m.media_url || (preserved ? preserved.mediaUrl || preserved.media_url : null);
-          if (!effectiveMediaUrl && tagMatch) {
-            effectiveMediaUrl = mediaService.getRawMediaUrl(tagMatch[2].trim());
-          }
-          if (!effectiveMediaUrl && (m.mediaId || m.media_id || mediaUuid)) {
-            effectiveMediaUrl = mediaService.getRawMediaUrl(m.mediaId || m.media_id || mediaUuid);
-          }
-
-          const effectiveKind = isVoiceKind
-            ? "voice"
-            : (m.kind && m.kind !== "text")
-            ? m.kind
-            : (tagMatch ? (tagMatch[1].toLowerCase() === "video" ? "video" : "photo") : (preserved?.kind || (effectiveMediaUrl ? (isVoiceKind ? "voice" : "photo") : m.kind)));
-
-          return {
-            ...m,
-            clientId: cId,
-            client_id: cId,
-            mediaId: m.mediaId || m.media_id || mediaUuid,
-            media_id: m.mediaId || m.media_id || mediaUuid,
-            mediaUrl: effectiveMediaUrl,
-            media_url: effectiveMediaUrl,
-            fileName: m.fileName || preserved?.fileName,
-            fileSize: m.fileSize || preserved?.fileSize,
-            kind: effectiveKind,
-          };
-        });
-
-        const unsyncedLocal = prev.filter(
-          (p) => !serverIds.has(p.id) && (!p.clientId || !serverClientIds.has(p.clientId))
-        );
-
-        const allMerged = [...mappedServer, ...unsyncedLocal];
-        allMerged.sort((a, b) => new Date(a.createdAt || a.created_at || 0) - new Date(b.createdAt || b.created_at || 0));
-
-        if (
-          prev.length === allMerged.length &&
-          prev.every((p, i) => {
-            const n = allMerged[i];
-            return (
-              p.id === n.id &&
-              p.body === n.body &&
-              p.reaction === n.reaction &&
-              p.reactionCount === n.reactionCount &&
-              p.read === n.read &&
-              p.mediaUrl === n.mediaUrl &&
-              p.isDeletedForEveryone === n.isDeletedForEveryone
-            );
-          })
-        ) {
-          return prev;
-        }
-
-        return allMerged;
-      });
-
+      await giveChatConsent(activeConn.id);
       setConnections((prev) =>
-        prev.map((c) => (c.id === activeConn.id ? { ...c, unreadCount: 0 } : c))
+        prev.map((c) =>
+          c.id === activeConn.id || c.connectionId === activeConn.id
+            ? { ...c, state: "active", myConsent: true, peerConsent: true }
+            : c
+        )
       );
-
-      const unread = combined.filter((m) => m.sender !== state.me?.id && !m.read);
-      if (unread.length > 0) {
-        const lastId = unread[unread.length - 1].id;
-        chatService.markAsRead(activeConn.id, lastId).catch(() => {});
-        setMessages((prev) =>
-          prev.map((m) => (m.sender !== state.me?.id ? { ...m, read: true, isRead: true, status: "read" } : m))
-        );
-
-        try {
-          const bc = new BroadcastChannel("jm_chat_messages_channel");
-          const readPayload = {
-            type: "MESSAGES_READ",
-            tabId: tabIdRef.current,
-            connectionId: activeConn.id,
-            readerId: myId,
-            timestamp: Date.now(),
-          };
-          bc.postMessage(readPayload);
-          localStorage.setItem("jm_last_chat_read", JSON.stringify({ ...readPayload, _salt: Math.random() }));
-        } catch {}
-      }
+      loadMessages();
     } catch (err) {
-      console.warn("Messages load note:", err.message);
-    } finally {
-      if (!isBackground) {
-        setLoadingMsgs(false);
-      }
+      console.warn("Consent activation error:", err);
     }
   };
 
-  useEffect(() => {
-    if (activeConn?.id) {
-      setConnections((prev) =>
-        prev.map((c) => (c.id === activeConn.id ? { ...c, unreadCount: 0 } : c))
-      );
-      isInitialLoadRef.current = true;
-      seenMsgIdsRef.current = new Set();
-      prevMsgReactionsRef.current = {};
-      setIsPeerTyping(false);
-      loadMessages(false);
-      setReplyTo(null);
-      setPendingAttachment(null);
-      setEditingMsgId(null);
-      setOpenDropdownMsgId(null);
-      setShowAttachMenu(false);
-      setShowEmojiDrawer(false);
-
-      // Join real-time socket room & mark messages as read
-      socketService.joinConnection(activeConn.id);
-      socketService.markAsRead(activeConn.id);
-    }
-
-    return () => {
-      if (activeConn?.id) {
-        socketService.leaveConnection(activeConn.id);
-      }
-    };
-  }, [activeConn?.id]);
-
-  // Re-sync messages when returning to the tab (Zero-polling architecture)
-  useEffect(() => {
+  // Calling Handlers
+  const handleInitiateCall = (medium = "audio") => {
     if (!activeConn?.id) return;
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        loadMessages(true);
-        socketService.markAsRead(activeConn.id);
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [activeConn?.id]);
-
-  // Close menus on outside click
-  useEffect(() => {
-    const handleGlobalClick = (e) => {
-      if (!e.target.closest(".wa-attachment-popup") && !e.target.closest(".wa-attach-trigger")) {
-        setShowAttachMenu(false);
-      }
-      if (!e.target.closest(".wa-emoji-drawer") && !e.target.closest(".wa-emoji-trigger")) {
-        setShowEmojiDrawer(false);
-      }
-      if (!e.target.closest(".wa-dropdown-menu") && !e.target.closest(".wa-dropdown-trigger") && !e.target.closest(".jm-msg-hover-actions")) {
-        setOpenDropdownMsgId(null);
-      }
-    };
-    document.addEventListener("mousedown", handleGlobalClick);
-    return () => document.removeEventListener("mousedown", handleGlobalClick);
-  }, []);
-
-  // 3. Send Message Handler
-  const handleSend = async (e) => {
-    if (e) e.preventDefault();
-    if (!activeConn?.id) return;
-
-    if (editingMsgId) {
-      const currentEditingId = editingMsgId;
-      const editedText = inputBody.trim();
-      if (!editedText) return;
-      setInputBody("");
-      setEditingMsgId(null);
-      await handleSaveEdit(currentEditingId, editedText);
-      return;
-    }
-
-    if (!inputBody.trim() && !pendingAttachment) return;
-
-    const textToSend = inputBody.trim();
-    const currentReplyId = replyTo?.id || null;
-    const attachmentToSend = pendingAttachment;
-
-    setInputBody("");
-    setReplyTo(null);
-    setPendingAttachment(null);
-    setShowAttachMenu(false);
-    setShowEmojiDrawer(false);
-    triggerSound();
-
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    if (activeConn?.id) {
-      try { socketService.stopTyping(activeConn.id); } catch {}
-    }
-
-    const clientId = `client-msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    markAsMySentMessage(clientId);
-
-    const tokenUserId = (typeof getCurrentUserIdFromToken === "function" ? getCurrentUserIdFromToken() : "") || "";
-    const myId = state.me?.id || state.me?.account?.id || tokenUserId || "me";
-    const myName = state.me?.profile?.pseudonym || state.me?.pseudonym || "You";
-    const peerId = activeConn.peer?.id;
-    const peerName = activeConn.peer?.pseudonym || activeConn.peer?.name || "Match";
-    const isPhotoAttachment =
-      attachmentToSend?.type === "gallery" ||
-      attachmentToSend?.mediaKind === "photo";
-    const isVideoAttachment =
-      attachmentToSend?.mediaKind === "video";
-    const isMediaAttachment = isPhotoAttachment || isVideoAttachment;
-    const mediaTagKind = isVideoAttachment ? "video" : (isPhotoAttachment ? "photo" : (attachmentToSend?.type === "file" ? "file" : "text"));
-
-    const optBody = isMediaAttachment
-      ? (textToSend || "Photo")
-      : (textToSend || (attachmentToSend ? attachmentToSend.name : ""));
-
-    const newMsg = {
-      id: clientId,
-      clientId,
-      sender: myId,
-      isMine: true,
-      mine: true,
-      body: optBody,
-      kind: attachmentToSend
-        ? attachmentToSend.type === "gallery"
-          ? attachmentToSend.mediaKind
-          : attachmentToSend.type
-        : "text",
-      mediaUrl: attachmentToSend?.previewUrl,
-      fileName: attachmentToSend?.name,
-      fileSize: attachmentToSend?.size,
-      replyToId: currentReplyId,
-      replyToSnippet: replyTo ? replyTo.body : null,
-      createdAt: new Date().toISOString(),
-      read: false,
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
-
-    const pairKey = peerId ? [myId, peerId].sort().join("::") : null;
-    saveLocalChatMessage([activeConn.id, pairKey], newMsg);
-
-    if (attachmentToSend?.previewUrl) {
-      try {
-        localStorage.setItem(`jm_media_cache_${clientId}`, attachmentToSend.previewUrl);
-        localStorage.setItem("jm_last_media_sent", attachmentToSend.previewUrl);
-      } catch {}
-    }
-
-    setConnections((prev) =>
-      prev.map((c) =>
-        c.id === activeConn.id
-          ? { ...c, lastMessage: newMsg, lastActive: new Date().toISOString() }
-          : c
-      )
-    );
-
-    const chatBroadcastPayload = {
-      type: "NEW_MESSAGE",
-      tabId: tabIdRef.current,
-      connectionId: activeConn.id,
-      message: {
-        ...newMsg,
-        mediaUrl: newMsg.mediaUrl,
-        body: isMediaAttachment ? (textToSend || "Photo") : newMsg.body,
-      },
-      senderId: myId,
-      senderName: myName,
-      recipientId: peerId,
-      recipientName: peerName,
-      timestamp: Date.now(),
-    };
-
-    try {
-      const bc = new BroadcastChannel("jm_chat_messages_channel");
-      bc.postMessage(chatBroadcastPayload);
-    } catch {}
-
-    try {
-      localStorage.setItem(
-        "jm_last_chat_message",
-        JSON.stringify({ ...chatBroadcastPayload, _salt: Math.random() })
-      );
-    } catch {}
-
-    // Async background sending
-    (async () => {
-      try {
-        let res;
-        if (attachmentToSend) {
-          if (attachmentToSend.type === "audio" || attachmentToSend.mediaKind === "audio") {
-            let mediaRes = null;
-            try {
-              mediaRes = await mediaService.uploadMedia(attachmentToSend.previewUrl, "voice", false);
-            } catch {}
-            res = await chatService.sendVoiceNote(activeConn.id, mediaRes?.id, {
-              clientId,
-              senderId: myId,
-              peerId,
-              previewUrl: attachmentToSend.previewUrl,
-              fileName: attachmentToSend.name,
-              fileSize: attachmentToSend.size,
-            });
-          } else {
-            let mediaRes = null;
-            try {
-              mediaRes = await mediaService.uploadMedia(
-                attachmentToSend.previewUrl,
-                attachmentToSend.mediaKind || "photo",
-                false
-              );
-            } catch (upErr) {
-              console.warn("Upload note:", upErr.message);
-            }
-
-            const actualMediaId = mediaRes?.id || mediaRes?.mediaId;
-            if (actualMediaId && attachmentToSend?.previewUrl) {
-              try {
-                localStorage.setItem(`jm_media_cache_${actualMediaId}`, attachmentToSend.previewUrl);
-                blobUrlCache.set(actualMediaId, attachmentToSend.previewUrl);
-                blobUrlCache.set(`/v1/media/${actualMediaId}`, attachmentToSend.previewUrl);
-              } catch {}
-            }
-
-            if (actualMediaId && peerId) {
-              mediaService.grantPhotoAccess(actualMediaId, peerId, "granted").catch(() => {});
-            }
-
-            const serverPath = mediaRes?.url || (actualMediaId ? `/v1/media/${actualMediaId}` : null);
-            const serverMediaUrl = serverPath ? mediaService.getRawMediaUrl(serverPath) : null;
-            const effectiveMediaUrl = serverMediaUrl || attachmentToSend.previewUrl;
-            const wireBody = serverPath
-              ? `[${mediaTagKind}:${serverPath}]${textToSend ? ` ${textToSend}` : ""}`
-              : (textToSend || "Photo");
-
-            res = await chatService.sendMessage(
-              activeConn.id,
-              wireBody,
-              currentReplyId,
-              {
-                clientId,
-                senderId: myId,
-                peerId,
-                mediaId: actualMediaId,
-                mediaUrl: effectiveMediaUrl,
-                kind: mediaTagKind,
-                fileName: attachmentToSend.name,
-                fileSize: attachmentToSend.size,
-                rawCaption: textToSend,
-                attachmentProps: {
-                  mediaId: actualMediaId,
-                  mediaUrl: effectiveMediaUrl,
-                  kind: mediaTagKind,
-                  fileName: attachmentToSend.name,
-                  fileSize: attachmentToSend.size,
-                  rawCaption: textToSend,
-                },
-              }
-            );
-          }
-        } else {
-          try {
-            socketService.sendMessage(activeConn.id, textToSend, clientId, currentReplyId).catch(() => {});
-          } catch {}
-          res = await chatService.sendMessage(activeConn.id, textToSend, currentReplyId, {
-            clientId,
-            senderId: myId,
-            peerId,
-          });
-        }
-
-        if (res) {
-          const serverMediaUrl = res.mediaUrl || (res.mediaId ? mediaService.getRawMediaUrl(res.mediaId) : null);
-          const finalMsg = {
-            ...newMsg,
-            ...res,
-            mediaUrl: serverMediaUrl || newMsg.mediaUrl,
-            fileName: newMsg.fileName || res.fileName,
-            fileSize: newMsg.fileSize || res.fileSize,
-            kind: newMsg.kind || res.kind || mediaTagKind,
-            isMine: true,
-            mine: true,
-          };
-
-          setMessages((prev) =>
-            prev.map((m) => (m.id === clientId || m.clientId === clientId ? finalMsg : m))
-          );
-
-          saveLocalChatMessage([activeConn.id, pairKey], {
-            ...finalMsg,
-            mediaUrl: finalMsg.mediaUrl,
-          });
-
-          const finalMediaUrl = attachmentToSend?.previewUrl || finalMsg.mediaUrl;
-          if (finalMsg.id && finalMediaUrl) {
-            try {
-              localStorage.setItem(`jm_media_cache_${finalMsg.id}`, finalMediaUrl);
-              if (clientId) localStorage.setItem(`jm_media_cache_${clientId}`, finalMediaUrl);
-              const extraId = res.mediaId || (attachmentToSend?.mediaKind ? newMsg.mediaId : null);
-              if (extraId) localStorage.setItem(`jm_media_cache_${extraId}`, finalMediaUrl);
-              localStorage.setItem("jm_last_media_sent", finalMediaUrl);
-            } catch {}
-          }
-
-          try {
-            const broadcastMsg = {
-              ...finalMsg,
-              mediaUrl: serverMediaUrl || finalMsg.mediaUrl,
-              body: isMediaAttachment ? (textToSend || "Photo") : (finalMsg.body?.startsWith("data:") ? "Photo" : finalMsg.body),
-            };
-            const bc = new BroadcastChannel("jm_chat_messages_channel");
-            const payload = {
-              type: "NEW_MESSAGE",
-              tabId: tabIdRef.current,
-              connectionId: activeConn.id,
-              message: broadcastMsg,
-              senderId: myId,
-              senderName: myName,
-              recipientId: peerId,
-              recipientName: peerName,
-              timestamp: Date.now(),
-            };
-            bc.postMessage(payload);
-            localStorage.setItem(
-              "jm_last_chat_message",
-              JSON.stringify({ ...payload, _salt: Math.random() })
-            );
-          } catch {}
-        }
-      } catch (err) {
-        console.warn("Message background delivery note:", err.message);
-      }
-    })();
+    startCall(activeConn.id, medium, activeConn.peer);
   };
 
-  // 4. File / Gallery / Audio Picker Handlers
+  // File Picker Handlers
   const handleSelectGallery = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -812,420 +417,6 @@ export default function ChatView({ connectionId: propConnectionId }) {
     setInputBody((prev) => prev + emoji);
   };
 
-  // 5. Voice Recording Hook
-  const handleVoiceRecordingComplete = async (base64Audio) => {
-    try {
-      showToast("Sending voice note…");
-      const clientId = `client-voice-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      markAsMySentMessage(clientId);
-      const myId = state.me?.id || "jm-member-1";
-      const peerId = activeConn.peer?.id;
-
-      const tempVoiceMsg = {
-        id: clientId,
-        clientId,
-        sender: myId,
-        body: "🎙️ Voice note",
-        kind: "voice",
-        mediaUrl: base64Audio,
-        createdAt: new Date().toISOString(),
-        read: false,
-      };
-      setMessages((prev) => [...prev, tempVoiceMsg]);
-
-      try {
-        localStorage.setItem(`jm_media_cache_${clientId}`, base64Audio);
-        saveLocalChatMessage([activeConn.id, peerId ? [myId, peerId].sort().join("::") : null], tempVoiceMsg);
-      } catch {}
-
-      try {
-        const bc = new BroadcastChannel("jm_chat_messages_channel");
-        const payload = {
-          type: "NEW_MESSAGE",
-          tabId: tabIdRef.current,
-          connectionId: activeConn.id,
-          message: tempVoiceMsg,
-          senderId: myId,
-          recipientId: peerId,
-          timestamp: Date.now(),
-        };
-        bc.postMessage(payload);
-        localStorage.setItem(
-          "jm_last_chat_message",
-          JSON.stringify({ ...payload, _salt: Math.random() })
-        );
-      } catch {}
-
-      let mediaRes = null;
-      try {
-        mediaRes = await mediaService.uploadMedia(base64Audio, "voice");
-      } catch (upErr) {
-        console.warn("Voice upload note:", upErr?.message);
-      }
-      const actualMediaId = mediaRes?.mediaId || mediaRes?.id;
-
-      if (actualMediaId) {
-        try {
-          localStorage.setItem(`jm_media_cache_${actualMediaId}`, base64Audio);
-        } catch {}
-        if (peerId) {
-          mediaService.grantPhotoAccess(actualMediaId, peerId, "granted").catch(() => {});
-        }
-      }
-
-      if (activeConn?.id) {
-        const voiceMsgRes = await chatService.sendVoiceNote(activeConn.id, actualMediaId, {
-          clientId,
-          senderId: myId,
-          peerId,
-          previewUrl: base64Audio,
-        });
-        if (voiceMsgRes) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === clientId || m.clientId === clientId
-                ? { ...voiceMsgRes, mediaUrl: base64Audio }
-                : m
-            )
-          );
-        }
-      }
-      showToast("Voice note sent.");
-    } catch (err) {
-      showToast(err.message || "Could not send voice note.");
-    }
-  };
-
-  const {
-    isRecording,
-    recordingSeconds,
-    startRecording,
-    stopAndSendRecording,
-    cancelRecording,
-  } = useVoiceRecorder({
-    onRecordingComplete: handleVoiceRecordingComplete,
-    showToast,
-  });
-
-  // 6. Audio Player Handler
-  const handleToggleAudio = async (msgId, rawUrl) => {
-    if (playingAudioId === msgId) {
-      if (currentAudioElRef.current) {
-        try { currentAudioElRef.current.pause(); } catch {}
-        currentAudioElRef.current = null;
-      }
-      setPlayingAudioId(null);
-      return;
-    }
-
-    if (currentAudioElRef.current) {
-      try { currentAudioElRef.current.pause(); } catch {}
-      currentAudioElRef.current = null;
-    }
-
-    const targetMsg = messages.find((m) => m.id === msgId || m.clientId === msgId);
-    let audioUrl = rawUrl || targetMsg?.mediaUrl || targetMsg?.media_url;
-
-    if (!audioUrl && targetMsg) {
-      const voiceTagMatch = typeof targetMsg.body === "string" && targetMsg.body.match(/\[(voice|audio):([\s\S]+?)\]/i);
-      const uuidMatch = typeof targetMsg.body === "string" && targetMsg.body.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
-      const mediaRef = targetMsg.mediaId || targetMsg.media_id || (voiceTagMatch ? voiceTagMatch[2]?.trim() : null) || (uuidMatch ? uuidMatch[1] : null);
-      if (mediaRef) {
-        audioUrl = mediaService.getRawMediaUrl(mediaRef);
-      }
-    }
-
-    if (!audioUrl && msgId) {
-      audioUrl = (await mediaService.fetchMediaBlobUrl(msgId)) || mediaService.getRawMediaUrl(msgId);
-    }
-
-    if (!audioUrl) {
-      showToast("Audio note source is unavailable.");
-      return;
-    }
-
-    try {
-      let finalPlayUrl = audioUrl;
-      if (!audioUrl.startsWith("data:") && !audioUrl.startsWith("blob:") && !audioUrl.startsWith("http")) {
-        const fetchedBlob = await mediaService.fetchMediaBlobUrl(audioUrl);
-        if (fetchedBlob) {
-          finalPlayUrl = fetchedBlob;
-        } else if (audioUrl.length > 100) {
-          finalPlayUrl = `data:audio/webm;base64,${audioUrl}`;
-        }
-      } else if (audioUrl.startsWith("http")) {
-        const fetchedBlob = await mediaService.fetchMediaBlobUrl(audioUrl);
-        if (fetchedBlob) finalPlayUrl = fetchedBlob;
-      }
-
-      if (currentAudioElRef.current) {
-        try { currentAudioElRef.current.pause(); } catch {}
-      }
-
-      const audio = new Audio();
-      audio.src = finalPlayUrl;
-      currentAudioElRef.current = audio;
-      setPlayingAudioId(msgId);
-
-      audio.onended = () => {
-        setPlayingAudioId(null);
-        currentAudioElRef.current = null;
-      };
-      audio.onerror = (e) => {
-        console.warn("Audio playback error:", e);
-        setPlayingAudioId(null);
-        currentAudioElRef.current = null;
-        showToast("Cannot play voice note (unsupported or expired media source).");
-      };
-      await audio.play();
-    } catch (err) {
-      console.warn("Audio play note:", err.message);
-      setPlayingAudioId(null);
-      showToast(err.message || "Audio playback could not start.");
-    }
-  };
-
-  // 7. Message Reactions
-  const handleReaction = async (messageId, emoji) => {
-    if (!messageId || !activeConn?.id) return;
-    triggerEmojiShower(emoji, true, messageId);
-
-    const tokenUid = (typeof getCurrentUserIdFromToken === "function" ? getCurrentUserIdFromToken() : "") || "";
-    const myUserId = state.me?.id || state.me?.account?.id || tokenUid || "me";
-
-    const targetMsg = messages.find((m) => m.id === messageId || m.clientId === messageId);
-    let currentReactions = { ...(targetMsg?.reactions || (targetMsg?.reaction ? { [targetMsg.reaction]: 1 } : {})) };
-    const myPrevEmoji = currentReactions[myUserId] || targetMsg?.reaction;
-    const isRemoving = myPrevEmoji === emoji;
-
-    setMessages((prev) =>
-      prev.map((m) => {
-        if (m.id !== messageId && m.clientId !== messageId) return m;
-        let nextReactions = { ...(m.reactions || (m.reaction ? { [myUserId]: m.reaction } : {})) };
-        if (isRemoving) {
-          delete nextReactions[myUserId];
-          delete nextReactions[emoji];
-          return {
-            ...m,
-            reaction: null,
-            reactionCount: Math.max(0, (m.reactionCount || 1) - 1),
-            reactions: Object.keys(nextReactions).length > 0 ? nextReactions : null,
-          };
-        } else {
-          nextReactions[myUserId] = emoji;
-          return {
-            ...m,
-            reaction: emoji,
-            reactionCount: (m.reactionCount || 0) + 1,
-            reactions: nextReactions,
-          };
-        }
-      })
-    );
-    setOpenDropdownMsgId(null);
-
-    try {
-      const bc = new BroadcastChannel("jm_chat_messages_channel");
-      bc.postMessage({
-        type: "MESSAGE_REACTION",
-        tabId: tabIdRef.current,
-        connectionId: activeConn.id,
-        messageId,
-        emoji: isRemoving ? null : emoji,
-        userId: myUserId,
-      });
-    } catch {}
-
-    try {
-      socketService.reactMessage(activeConn.id, messageId, isRemoving ? null : emoji);
-    } catch {}
-
-    try {
-      await chatService.addReaction(activeConn.id, messageId, isRemoving ? null : emoji);
-    } catch (err) {
-      console.warn("Reaction API note:", err.message);
-    }
-  };
-
-  // 8. Edit Message
-  const handleStartEdit = (msg) => {
-    if (!msg) return;
-    if (!isWithinTimeLimit(msg.createdAt || msg.created_at, 15)) {
-      showToast("Messages can only be edited within 15 minutes of sending.");
-      return;
-    }
-    setEditingMsgId(msg.id || msg.clientId);
-    setInputBody(msg.body || "");
-    setReplyTo(null);
-    setPendingAttachment(null);
-    setOpenDropdownMsgId(null);
-  };
-
-  const handleSaveEdit = async (messageId, newText) => {
-    const textToSave = (newText || inputBody || "").trim();
-    if (!textToSave || !activeConn?.id) return;
-
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === messageId || m.clientId === messageId
-          ? { ...m, body: textToSave, edited: true, isEdited: true }
-          : m
-      )
-    );
-    setEditingMsgId(null);
-    setInputBody("");
-    showToast("Message edited.");
-
-    try {
-      socketService.editMessage(activeConn.id, messageId, textToSave).catch(() => {});
-    } catch {}
-
-    try {
-      await chatService.editMessage(activeConn.id, messageId, textToSave);
-    } catch (err) {
-      console.warn("Edit API note:", err.message);
-    }
-  };
-
-  // 9. Delete Message Modal
-  const openDeleteModal = (msg) => {
-    setOpenDropdownMsgId(null);
-    const canDeleteForEveryone = isWithinTimeLimit(msg.createdAt || msg.created_at, 15);
-
-    openModal(
-      "Delete Message?",
-      <DeleteModalContent
-        msg={msg}
-        canDeleteForEveryone={canDeleteForEveryone}
-        onDeleteForMe={() => {
-          setMessages((prev) => prev.filter((m) => m.id !== msg.id));
-          closeModal();
-          showToast("Message deleted for you.");
-        }}
-        onDeleteForEveryone={async () => {
-          if (!canDeleteForEveryone) return;
-          try {
-            if (activeConn?.id) {
-              socketService.deleteMessage(activeConn.id, msg.id, "everyone").catch(() => {});
-              await chatService.deleteMessage(activeConn.id, msg.id, true);
-            }
-          } catch (err) {}
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === msg.id
-                ? {
-                    ...m,
-                    isDeletedForEveryone: true,
-                    body: "🚫 This message was deleted",
-                    mediaUrl: null,
-                    fileName: null,
-                  }
-                : m
-            )
-          );
-          closeModal();
-          showToast("Message deleted for everyone.");
-        }}
-        onClose={closeModal}
-      />
-    );
-  };
-
-  // 10. Modals & Actions
-  const handleOpenContactInfo = () => {
-    if (!activeConn?.peer) return;
-    setShowContactPanel((prev) => !prev);
-  };
-
-  const handleRequestPrivatePhoto = () => {
-    openModal(
-      "Request Private Photos",
-      <RequestPhotoModalContent
-        peerName={activeConn.peer?.pseudonym}
-        onConfirm={async () => {
-          try {
-            if (activeConn?.id) {
-              await chatService.sendMessage(activeConn.id, {
-                body: "🔒 Requested private photo access",
-                kind: "text",
-              });
-            }
-          } catch (err) {}
-          closeModal();
-          showToast(`🔒 Access request sent to ${activeConn.peer?.pseudonym || "member"}!`);
-        }}
-        onClose={closeModal}
-      />
-    );
-  };
-
-  const handleBlockUser = () => {
-    openModal(
-      "Block Member?",
-      <BlockModalContent
-        peerName={activeConn.peer?.pseudonym}
-        onConfirm={async () => {
-          try {
-            const targetId = activeConn.peer?.id || activeConn.id;
-            await blockMember(targetId);
-            closeModal();
-            loadConnections();
-          } catch (err) {
-            showToast(err.message || "Failed to block member.");
-          }
-        }}
-        onClose={closeModal}
-      />
-    );
-  };
-
-  const handleReportUser = () => {
-    openModal(
-      "Report Member",
-      <ReportModalContent
-        peerName={activeConn.peer?.pseudonym}
-        onSubmit={async (details) => {
-          try {
-            await chatService.reportMember(
-              activeConn.peer?.id || activeConn.id,
-              details
-            );
-            closeModal();
-            showToast("Report submitted. Thank you for helping keep Juicy safe.");
-          } catch (err) {
-            showToast(err.message || "Failed to submit report.");
-          }
-        }}
-        onClose={closeModal}
-      />
-    );
-  };
-
-  const handleClearConversation = () => {
-    openModal(
-      "Clear Conversation?",
-      <ClearConversationModalContent
-        peerName={activeConn.peer?.pseudonym}
-        onConfirm={async () => {
-          try {
-            if (chatService.clearConversation) {
-              await chatService.clearConversation(activeConn.id);
-            }
-          } catch (err) {}
-          setMessages([]);
-          closeModal();
-          showToast("Conversation cleared.");
-        }}
-        onClose={closeModal}
-      />
-    );
-  };
-
-  const handleInitiateCall = (medium = "audio") => {
-    if (!activeConn?.id) return;
-    startCall(activeConn.id, medium, activeConn.peer);
-  };
-
   const handleInputChange = (newText) => {
     setInputBody(newText);
     if (activeConn?.id) {
@@ -1253,7 +444,7 @@ export default function ChatView({ connectionId: propConnectionId }) {
 
         <div className={`flex-shrink-0 w-full md:w-[260px] lg:w-[280px] md:block ${selectedConnId ? "hidden" : "block"}`}>
           <ChatSidebar
-            connections={connections}
+            connections={filteredConnections}
             selectedConnId={selectedConnId}
             onSelectConn={setSelectedConnId}
             onSelectConnection={setSelectedConnId}
@@ -1312,6 +503,15 @@ export default function ChatView({ connectionId: propConnectionId }) {
                 onToggleAudio={handleToggleAudio}
                 playingAudioId={playingAudioId}
               />
+
+              {/* Mutual Consent Required Notification Banner */}
+              {activeConn && (activeConn.state === "pending" || activeConn.myConsent === false) && (
+                <MutualConsentBanner
+                  peerName={activeConn.peer?.pseudonym || activeConn.peer?.name || "your match"}
+                  onAccept={handleAcceptConsent}
+                />
+              )}
+
               <MessageInput
                 inputBody={inputBody}
                 setInputBody={handleInputChange}

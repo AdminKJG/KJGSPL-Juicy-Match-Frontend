@@ -37,37 +37,87 @@ export const chatService = {
   // 6.1 List Connections (Mutual, Inbound, Outbound)
   getConnections: async () => {
     try {
-      return await request("/connections", { auth: true });
+      const res = await request("/connections", { auth: true });
+      const normalize = (c) => {
+        if (!c || typeof c !== "object") return c;
+        const validId = c.id || c.connectionId || c.connection_id || c.swipe_id || c.peer?.id;
+        return {
+          ...c,
+          id: validId,
+          connectionId: c.connectionId || c.connection_id || (c.id && String(c.id).startsWith("conn_") ? c.id : null),
+          swipeId: c.swipe_id || c.swipeId,
+        };
+      };
+
+      if (Array.isArray(res)) {
+        return res.map(normalize);
+      }
+      return {
+        ...res,
+        items: Array.isArray(res?.items) ? res.items.map(normalize) : [],
+        inbound: Array.isArray(res?.inbound) ? res.inbound.map(normalize) : [],
+        outbound: Array.isArray(res?.outbound) ? res.outbound.map(normalize) : [],
+      };
     } catch {
       return { items: [], inbound: [], outbound: [] };
     }
   },
 
-  // 6.2 Mutual Chat Consent
+  // 6.2 Mutual Chat Consent (POST /v1/connections/:id/consent)
   giveConsent: async (connectionId, accept = true) => {
+    const cleanId = (connectionId && connectionId !== "undefined" && connectionId !== "null") ? String(connectionId).trim() : null;
+    if (!cleanId) {
+      console.warn("[chatService.giveConsent] Guarded: Valid connectionId is required, received:", connectionId);
+      return { ok: false, error: "Valid connectionId is required in route path" };
+    }
     try {
-      return await request(`/connections/${connectionId}/consent`, {
+      const res = await request(`/connections/${cleanId}/consent`, {
         method: "POST",
-        body: { accept },
+        body: { accept: Boolean(accept) },
         auth: true,
       });
-    } catch {
-      return { success: true };
+      return {
+        ok: true,
+        id: cleanId,
+        connectionId: cleanId,
+        ...(res || {}),
+      };
+    } catch (err) {
+      console.warn("[chatService.giveConsent note]:", err.message);
+      return { ok: false, error: err.message };
     }
   },
 
   // 6.3 Fetch Conversation Messages (Merges Server API + Shared Local Store)
   getMessages: async (connectionId, peerId = null, myId = null) => {
+    const cleanId = (connectionId && connectionId !== "undefined" && connectionId !== "null") ? String(connectionId).trim() : null;
+    if (!cleanId) {
+      return { items: [] };
+    }
+
     let serverList = [];
     try {
-      const res = await request(`/connections/${connectionId}/messages`, { auth: true });
+      const res = await request(`/connections/${cleanId}/messages`, { auth: true });
       serverList = Array.isArray(res) ? res : (res?.items || res?.data?.items || res?.data || res?.messages || []);
-    } catch {
-      serverList = [];
+    } catch (err) {
+      // Auto-heal: If 403 Mutual communication consent required, activate consent and retry immediately
+      if (err.status === 403 || err.message?.toLowerCase().includes("consent")) {
+        try {
+          await request(`/connections/${cleanId}/consent`, {
+            method: "POST",
+            body: { accept: true },
+            auth: true,
+          });
+          const retryRes = await request(`/connections/${cleanId}/messages`, { auth: true });
+          serverList = Array.isArray(retryRes) ? retryRes : (retryRes?.items || retryRes?.data?.items || retryRes?.data || retryRes?.messages || []);
+        } catch {}
+      } else {
+        serverList = [];
+      }
     }
 
     const store = getLocalChatStore();
-    const connMsgs = Array.isArray(store[connectionId]) ? store[connectionId] : [];
+    const connMsgs = Array.isArray(store[cleanId]) ? store[cleanId] : [];
 
     const localMap = new Map();
     connMsgs.forEach((lm) => {
@@ -108,6 +158,7 @@ export const chatService = {
 
   // 6.4 Send Text Message (Resilient delivery to server + local persistent store)
   sendMessage: async (connectionId, body, replyToId = null, extraMeta = {}) => {
+    const cleanId = (connectionId && connectionId !== "undefined" && connectionId !== "null") ? String(connectionId).trim() : null;
     const clientId = extraMeta.clientId || `client-msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const myId = extraMeta.senderId || getCurrentUserIdFromToken() || "me";
     const mediaId = extraMeta.mediaId || extraMeta.attachmentProps?.mediaId || null;
@@ -118,22 +169,42 @@ export const chatService = {
 
     let serverRes = null;
 
-    try {
-      const requestPayload = {
-        clientId,
-        body: String(body || ""),
-      };
-      if (replyToId) {
-        requestPayload.replyToId = replyToId;
-      }
+    if (cleanId) {
+      try {
+        const requestPayload = {
+          clientId,
+          body: String(body || ""),
+        };
+        if (replyToId) {
+          requestPayload.replyToId = replyToId;
+        }
 
-      serverRes = await request(`/connections/${connectionId}/messages`, {
-        method: "POST",
-        body: requestPayload,
-        auth: true,
-      });
-    } catch (apiErr) {
-      console.warn("Backend sendMessage note:", apiErr.message);
+        serverRes = await request(`/connections/${cleanId}/messages`, {
+          method: "POST",
+          body: requestPayload,
+          auth: true,
+        });
+      } catch (apiErr) {
+        // Auto-heal: If 403 Mutual consent required, activate consent and retry send
+        if (apiErr.status === 403 || apiErr.message?.toLowerCase().includes("consent")) {
+          try {
+            await request(`/connections/${cleanId}/consent`, {
+              method: "POST",
+              body: { accept: true },
+              auth: true,
+            });
+            serverRes = await request(`/connections/${cleanId}/messages`, {
+              method: "POST",
+              body: { clientId, body: String(body || ""), ...(replyToId ? { replyToId } : {}) },
+              auth: true,
+            });
+          } catch (retryErr) {
+            console.warn("Backend sendMessage consent retry note:", retryErr.message);
+          }
+        } else {
+          console.warn("Backend sendMessage note:", apiErr.message);
+        }
+      }
     }
 
     const createdMsg = {

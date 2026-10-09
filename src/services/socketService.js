@@ -54,7 +54,12 @@ class SocketService {
 
         // Rejoin active connection room if any
         if (this.activeConnectionId) {
-          this.joinConnection(this.activeConnectionId);
+          const cid = this.activeConnectionId;
+          const payload = { connectionId: cid, connection_id: cid, conversationId: cid, room: cid };
+          this.socket.emit("connection:join", payload);
+          this.socket.emit("join_connection", payload);
+          this.socket.emit("join_room", payload);
+          this.socket.emit("join", cid);
         }
         // Rejoin active livestream room if any
         if (this.activeLivestreamId) {
@@ -99,10 +104,28 @@ class SocketService {
   joinConnection(connectionId) {
     if (!connectionId) return;
     this.activeConnectionId = connectionId;
-    if (this.socket && this.isConnected) {
-      this.socket.emit("connection:join", { connectionId }, (res) => {
-        if (res?.ok) console.log("[JM Socket] Joined connection room:", connectionId);
-      });
+
+    if (!this.socket || !this.isConnected) {
+      this.connect();
+    }
+
+    if (this.socket) {
+      const payload = {
+        connectionId,
+        connection_id: connectionId,
+        conversationId: connectionId,
+        room: connectionId,
+      };
+      try {
+        this.socket.emit("connection:join", payload, (res) => {
+          if (res?.ok) console.log("[JM Socket] Joined connection room:", connectionId);
+        });
+        this.socket.emit("join_connection", payload);
+        this.socket.emit("join_room", payload);
+        this.socket.emit("join", connectionId);
+      } catch (err) {
+        console.warn("[JM Socket] joinConnection emit note:", err.message);
+      }
     }
   }
 
@@ -111,8 +134,19 @@ class SocketService {
     if (this.activeConnectionId === connectionId) {
       this.activeConnectionId = null;
     }
-    if (this.socket && this.isConnected) {
-      this.socket.emit("connection:leave", { connectionId });
+    if (this.socket) {
+      const payload = {
+        connectionId,
+        connection_id: connectionId,
+        conversationId: connectionId,
+        room: connectionId,
+      };
+      try {
+        this.socket.emit("connection:leave", payload);
+        this.socket.emit("leave_connection", payload);
+        this.socket.emit("leave_room", payload);
+        this.socket.emit("leave", connectionId);
+      } catch {}
     }
   }
 
@@ -245,13 +279,24 @@ class SocketService {
       // 1. Direct Messaging
       "message:received",
       "new_message",
+      "message",
+      "chat:message",
+      "chat_message",
+      "receive_message",
+      "bot_message",
+      "notification:new_message",
       "message:updated",
       "message:deleted",
       "message:reaction_updated",
       "message:seen",
+      "message:read",
 
-      // 2. Typing Indicators
+      // 2. Typing Indicators (human + bot aliases)
       "typing:status",
+      "bot_typing",    // Bot engine alias: { conversationId, isTyping }
+      "user_typing",
+      "typing:start",
+      "typing:stop",
 
       // 3. Match & Discovery
       "match:created",
@@ -274,6 +319,9 @@ class SocketService {
       // 7. Travel Passport
       "travel_invite:received",
       "travel_invite:status_updated",
+
+      // 7b. Bot message alias
+      "bot_message",   // Bot engine alias: same payload shape as message:received
 
       // 8. Livestream
       "livestream:message_received",

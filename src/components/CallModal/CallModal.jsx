@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { useCall } from "../../hooks/useCall";
+import { useApp } from "../../context/AppContext";
 import OutgoingRinging from "./OutgoingRinging";
 import IncomingRinging from "./IncomingRinging";
 import ActiveCall from "./ActiveCall";
+import CallEndSummaryModal from "./CallEndSummaryModal";
 
 export default function CallModal({ call, callData, onClose, onCallEnded, showToast }) {
+  const { updateWallet, state } = useApp();
   const initialCall = call || callData;
   const callState = useCall(initialCall);
   const {
@@ -17,21 +20,36 @@ export default function CallModal({ call, callData, onClose, onCallEnded, showTo
     isSimulated,
     room,
     error,
+    callReceipt,
+    callSeconds,
   } = callState;
 
   // Screen sizing: 'compact' (420px) | 'theater' (960px) | 'fullscreen' (100vw/100vh)
   const [sizeMode, setSizeMode] = useState("compact");
 
-  // Auto-close when call reaches terminal state (ended / declined)
+  // Deduct charged credits from local wallet when call ends
+  useEffect(() => {
+    if (callReceipt?.fc_charged && isCaller) {
+      const currentFC = state.wallet?.featureCredits ?? 100;
+      updateWallet?.({
+        featureCredits: Math.max(0, currentFC - callReceipt.fc_charged),
+      });
+    }
+  }, [callReceipt?.fc_charged, isCaller]);
+
+  // Auto-close for immediately declined/cancelled calls without connection
   useEffect(() => {
     if (isTerminal) {
       onCallEnded?.(currentCall?.state || "ended");
-      const timer = setTimeout(() => {
-        onClose?.();
-      }, 1200);
-      return () => clearTimeout(timer);
+      // If it was connected, let user see CallEndSummaryModal instead of auto-closing instantly
+      if (callSeconds === 0 && !callReceipt) {
+        const timer = setTimeout(() => {
+          onClose?.();
+        }, 1200);
+        return () => clearTimeout(timer);
+      }
     }
-  }, [isTerminal, currentCall?.state, onClose, onCallEnded]);
+  }, [isTerminal, currentCall?.state, callSeconds, callReceipt, onClose, onCallEnded]);
 
   if (!currentCall) return null;
 
@@ -121,17 +139,28 @@ export default function CallModal({ call, callData, onClose, onCallEnded, showTo
           <IncomingRinging callState={callState} sizeMode={sizeMode} onClose={onClose} />
         )}
 
-        {/* 4. Terminal state banner */}
+        {/* 4. Terminal state banner or Billing Receipt */}
         {isTerminal && (
-          <div className="p-10 text-center flex flex-col items-center justify-center flex-1 min-h-[320px]">
-            <div className="w-16 h-16 rounded-full bg-[#ff5656]/20 text-[#ff5656] flex items-center justify-center mb-4">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+          (callSeconds > 0 || callReceipt) ? (
+            <CallEndSummaryModal
+              callReceipt={callReceipt}
+              isCaller={isCaller}
+              medium={currentCall?.medium}
+              peerName={currentCall?.peer?.pseudonym || currentCall?.peer?.name}
+              durationSeconds={callSeconds}
+              onClose={onClose}
+            />
+          ) : (
+            <div className="p-10 text-center flex flex-col items-center justify-center flex-1 min-h-[320px]">
+              <div className="w-16 h-16 rounded-full bg-[#ff5656]/20 text-[#ff5656] flex items-center justify-center mb-4">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+              </div>
+              <h3 className="text-white text-xl font-bold m-0">
+                {currentCall?.state === "declined" ? "Call Declined" : "Call Ended"}
+              </h3>
+              <p className="text-[#ccb9ca] text-xs mt-2">Closing window…</p>
             </div>
-            <h3 className="text-white text-xl font-bold m-0">
-              {currentCall?.state === "declined" ? "Call Declined" : "Call Ended"}
-            </h3>
-            <p className="text-[#ccb9ca] text-xs mt-2">Closing window…</p>
-          </div>
+          )
         )}
 
         {/* 5. Error banner */}

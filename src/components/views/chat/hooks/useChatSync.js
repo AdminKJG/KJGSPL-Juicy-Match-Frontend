@@ -100,34 +100,50 @@ export function useChatSync({
 
       if (data.type !== "NEW_MESSAGE") return;
 
-      const incomingMsg = data.message;
-      if (!incomingMsg) return;
+      const incomingMsg = data.message || data;
+      if (!incomingMsg || (!incomingMsg.id && !incomingMsg.clientId && !incomingMsg.client_id && !incomingMsg.body)) return;
 
       const currentActiveConn = activeConnRef.current;
       const currentState = stateRef.current;
       const currentConnections = connectionsRef.current;
 
-      const myUserId = currentState.me?.id || "jm-member-1";
+      const myUserId = currentState?.me?.id || currentState?.me?.account?.id || "jm-member-1";
       const activePeerId = currentActiveConn?.peer?.id;
-      const activePeerName = (currentActiveConn?.peer?.pseudonym || "").trim().toLowerCase();
-      const senderName = (data.senderName || "").trim().toLowerCase();
-      const recipientName = (data.recipientName || "").trim().toLowerCase();
-      const senderId = data.senderId || incomingMsg.sender;
-      const recipientId = data.recipientId;
+      const activePeerName = (currentActiveConn?.peer?.pseudonym || currentActiveConn?.peer?.name || "").trim().toLowerCase();
+      const senderName = (data.senderName || incomingMsg.senderName || "").trim().toLowerCase();
+      const recipientName = (data.recipientName || incomingMsg.recipientName || "").trim().toLowerCase();
+      const senderId = data.senderId || incomingMsg.sender || incomingMsg.senderId || incomingMsg.sender_id;
+      const recipientId = data.recipientId || incomingMsg.recipient || incomingMsg.recipientId || incomingMsg.recipient_id;
+
+      const isFromMe = Boolean(
+        (senderId && senderId === myUserId) ||
+        (incomingMsg.sender && incomingMsg.sender === myUserId) ||
+        incomingMsg.isMine ||
+        incomingMsg.mine
+      );
 
       const cleanIncoming = {
         ...incomingMsg,
-        isMine: false,
-        mine: false,
-        isReceived: true,
+        isMine: isFromMe,
+        mine: isFromMe,
+        isReceived: !isFromMe,
       };
+
+      const incomingConnId =
+        data.connectionId ||
+        data.connection_id ||
+        data.conversationId ||
+        incomingMsg.connectionId ||
+        incomingMsg.connection_id ||
+        incomingMsg.conversationId;
 
       // 1. Persist incoming message locally under all possible keys
       const allKeys = [
-        data.connectionId,
+        incomingConnId,
         senderId,
         recipientId,
         currentActiveConn?.id,
+        currentActiveConn?.connectionId,
         activePeerId ? [myUserId, activePeerId].sort().join("::") : null,
         senderId && recipientId ? [senderId, recipientId].sort().join("::") : null,
         activePeerId,
@@ -153,24 +169,30 @@ export function useChatSync({
       }
 
       // 2. Check if this incoming message belongs to current active conversation
+      const currentActiveId = currentActiveConn?.id || currentActiveConn?.connectionId || currentActiveConn?.connection_id;
       const isForThisActiveChat = Boolean(
-        (data.connectionId && currentActiveConn?.id && data.connectionId === currentActiveConn.id) ||
+        (incomingConnId && currentActiveId && (incomingConnId === currentActiveId || String(incomingConnId).toLowerCase() === String(currentActiveId).toLowerCase())) ||
         (activePeerId && (senderId === activePeerId || recipientId === activePeerId)) ||
         (activePeerName && (
-          activePeerName === senderName ||
-          activePeerName === recipientName ||
-          activePeerName.includes(senderName) ||
-          senderName.includes(activePeerName)
+          (senderName && (activePeerName === senderName || activePeerName.includes(senderName) || senderName.includes(activePeerName))) ||
+          (recipientName && (activePeerName === recipientName || activePeerName.includes(recipientName) || recipientName.includes(activePeerName)))
         )) ||
         (currentConnections.length <= 1 && currentActiveConn)
       );
 
       if (isForThisActiveChat) {
         setMessages((prev) => {
+          const isCallEnded = typeof cleanIncoming.body === "string" && (cleanIncoming.body.includes("call · Ended") || cleanIncoming.body.includes("Call · Ended"));
+          const lastMsg = prev[prev.length - 1];
+          if (isCallEnded && lastMsg && lastMsg.body === cleanIncoming.body) {
+            return prev;
+          }
+
           const idx = prev.findIndex(
             (m) =>
-              m.id === cleanIncoming.id ||
-              (cleanIncoming.clientId && (m.clientId === cleanIncoming.clientId || m.id === cleanIncoming.clientId))
+              (cleanIncoming.id && m.id === cleanIncoming.id) ||
+              (cleanIncoming.clientId && (m.clientId === cleanIncoming.clientId || m.id === cleanIncoming.clientId)) ||
+              (cleanIncoming.client_id && (m.clientId === cleanIncoming.client_id || m.client_id === cleanIncoming.client_id))
           );
           let next;
           if (idx >= 0) {
@@ -186,30 +208,29 @@ export function useChatSync({
           next.sort((a, b) => new Date(a.createdAt || a.created_at || 0) - new Date(b.createdAt || b.created_at || 0));
           return next;
         });
-        if (triggerSound) triggerSound();
+        if (!isFromMe && triggerSound) triggerSound();
       }
 
       // 3. Update connection preview in sidebar
       setConnections((prev) =>
         prev.map((c) => {
+          const cId = c.id || c.connectionId || c.connection_id;
           const cPeerId = c.peer?.id;
-          const cPeerName = (c.peer?.pseudonym || "").trim().toLowerCase();
+          const cPeerName = (c.peer?.pseudonym || c.peer?.name || "").trim().toLowerCase();
           const isMatch =
-            c.id === data.connectionId ||
+            (incomingConnId && cId === incomingConnId) ||
             (cPeerId && (cPeerId === senderId || cPeerId === recipientId)) ||
             (cPeerName && (
-              cPeerName === senderName ||
-              cPeerName === recipientName ||
-              senderName.includes(cPeerName) ||
-              recipientName.includes(cPeerName)
+              (senderName && (cPeerName === senderName || senderName.includes(cPeerName) || cPeerName.includes(senderName))) ||
+              (recipientName && (cPeerName === recipientName || recipientName.includes(cPeerName) || cPeerName.includes(recipientName)))
             ));
 
           if (isMatch) {
             return {
               ...c,
               lastMessage: cleanIncoming,
-              lastActive: new Date().toISOString(),
-              unreadCount: isForThisActiveChat ? 0 : (c.unreadCount || 0) + 1,
+              lastActive: cleanIncoming.createdAt || cleanIncoming.created_at || new Date().toISOString(),
+              unreadCount: isForThisActiveChat ? 0 : (c.unreadCount || 0) + (isFromMe ? 0 : 1),
             };
           }
           return c;
@@ -218,30 +239,35 @@ export function useChatSync({
     };
 
     // ── Real-Time Socket.io Event Bindings ─────────────────────────────
-    const unSockMsg = socketService.on("message:received", (data) => {
-      if (data?.message) {
-        handleIncomingNewMessage({
-          type: "NEW_MESSAGE",
-          connectionId: data.connectionId,
-          message: data.message,
-          senderId: data.message.sender || data.senderId,
-          senderName: data.message.senderName || data.senderName,
-        });
-      }
-    });
+    const handleRawSocketMsg = (data) => {
+      if (!data) return;
+      const msgObj = data.message || data;
+      if (!msgObj || (!msgObj.id && !msgObj.clientId && !msgObj.body)) return;
+      const connId =
+        data.connectionId ||
+        data.connection_id ||
+        data.conversationId ||
+        msgObj.connectionId ||
+        msgObj.connection_id;
 
-    const unSockNewMsg = socketService.on("new_message", (data) => {
-      if (data?.message || data?.body) {
-        const msgObj = data.message || data;
-        handleIncomingNewMessage({
-          type: "NEW_MESSAGE",
-          connectionId: data.connectionId,
-          message: msgObj,
-          senderId: msgObj.sender || data.senderId,
-          senderName: msgObj.senderName || data.senderName,
-        });
-      }
-    });
+      handleIncomingNewMessage({
+        type: "NEW_MESSAGE",
+        connectionId: connId,
+        message: msgObj,
+        senderId: msgObj.sender || msgObj.senderId || data.senderId,
+        senderName: msgObj.senderName || data.senderName,
+        recipientId: msgObj.recipient || msgObj.recipientId || data.recipientId,
+      });
+    };
+
+    const unSockMsg = socketService.on("message:received", handleRawSocketMsg);
+    const unSockNewMsg = socketService.on("new_message", handleRawSocketMsg);
+    const unSockChatMsg = socketService.on("chat:message", handleRawSocketMsg);
+    const unSockChatMsgDash = socketService.on("chat_message", handleRawSocketMsg);
+    const unSockMsgRaw = socketService.on("message", handleRawSocketMsg);
+    const unSockReceiveMsg = socketService.on("receive_message", handleRawSocketMsg);
+    const unSockBotMsg = socketService.on("bot_message", handleRawSocketMsg);
+    const unSockNotifMsg = socketService.on("notification:new_message", handleRawSocketMsg);
 
     const unSockUpd = socketService.on("message:updated", (data) => {
       const msg = data?.message || data;
@@ -314,6 +340,12 @@ export function useChatSync({
       window.removeEventListener("storage", handleStorageMsg);
       unSockMsg();
       unSockNewMsg();
+      unSockChatMsg();
+      unSockChatMsgDash();
+      unSockMsgRaw();
+      unSockReceiveMsg();
+      unSockBotMsg();
+      unSockNotifMsg();
       unSockUpd();
       unSockDel();
       unSockReact();

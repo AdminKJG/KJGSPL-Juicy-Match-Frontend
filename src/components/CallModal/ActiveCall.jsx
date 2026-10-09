@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Track, RoomEvent } from "livekit-client";
 import { useApp } from "../../context/AppContext";
+import CallCreditBar from "./CallCreditBar";
+import InsufficientCreditsModal from "./InsufficientCreditsModal";
 
 export default function ActiveCall({ callState, sizeMode = "compact", onClose }) {
   const { state } = useApp();
@@ -8,6 +10,7 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
     call,
     room,
     isVideo,
+    isCaller,
     isSimulated,
     mic,
     camera,
@@ -17,6 +20,8 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
     toggleCamera,
     performAction,
   } = callState;
+
+  const [showInCallTopup, setShowInCallTopup] = useState(false);
 
   const remoteVideoRef = useRef(null);
   const localVideoRef = useRef(null);
@@ -322,6 +327,17 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
         <span className="text-[#a8e4b0] text-sm font-medium tracking-wide mt-0.5">
           {formatTime(callSeconds)}
         </span>
+
+        {/* Live Feature Credits Burn Rate & Low Credit Warning */}
+        <div className="mt-2 w-full flex justify-center">
+          <CallCreditBar
+            isCaller={isCaller}
+            isVideo={isVideo}
+            callSeconds={callSeconds}
+            onDepleted={() => performAction("end")}
+            onOpenTopup={() => setShowInCallTopup(true)}
+          />
+        </div>
       </div>
 
       {/* ── PiP: Local Camera Preview OR Initial Avatar when Camera is Off (WhatsApp Style) ── */}
@@ -437,6 +453,17 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
           </button>
         </div>
       </div>
+
+      {/* In-Call Quick Top-up Modal */}
+      {showInCallTopup && (
+        <InsufficientCreditsModal
+          medium={isVideo ? "video" : "audio"}
+          requiredCredits={isVideo ? 15 : 5}
+          currentCredits={state.wallet?.featureCredits ?? 0}
+          onClose={() => setShowInCallTopup(false)}
+          onSuccess={() => setShowInCallTopup(false)}
+        />
+      )}
     </div>
   );
 }

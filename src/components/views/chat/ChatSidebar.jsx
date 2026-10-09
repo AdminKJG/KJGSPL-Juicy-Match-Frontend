@@ -284,7 +284,6 @@ export default function ChatSidebar({
                     </div>
                     <div className="flex items-center justify-between gap-1.5">
                       <p className={`text-[11px] truncate ${hasUnread ? "text-white/90 font-medium" : "text-muted"}`}>
-                        {conn.peer?.isBot && "🤖 "}
                         {lastMsg}
                       </p>
                       {hasUnread && (

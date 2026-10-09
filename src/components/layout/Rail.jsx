@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import Icon from "../common/Icon";
 import Avatar from "../common/Avatar";
 import { useApp } from "../../context/AppContext";
+import { normalizePlanKey, getPlanBadge } from "../../utils/planUtils";
 
 const mainNav = [
   { id: "discover", label: "Discover", icon: "discover" },
@@ -10,6 +11,7 @@ const mainNav = [
   { id: "passport", label: "Passport", icon: "plane" },
   { id: "messages", label: "Messages", icon: "chat" },
   { id: "notifications", label: "Notifications", icon: "bell" },
+  { id: "membership", label: "Subscription", icon: "crown" },
   { id: "settings", label: "Settings", icon: "settings" },
   { id: "profile", label: "Me", icon: "user" },
 ];
@@ -62,23 +64,16 @@ export default function Rail() {
       ? "messages"
       : ["events", "desires"].includes(currentTab)
         ? "explore"
-        : ["privacy", "album", "membership"].includes(currentTab)
+        : ["privacy", "album"].includes(currentTab)
           ? "profile"
           : currentTab;
 
   const pseudonym = state?.me?.profile?.pseudonym || "Member";
-  const planRaw = (state?.entitlement?.plan || "free").toLowerCase();
-  const isFree = planRaw === "free" || planRaw === "explore";
-  const isPlus = planRaw === "plus";
-  const isPremium = planRaw === "premium";
-
-  const planBadge = isPremium ? "PREMIUM VIP" : "UPGRADE";
-  const planName = isFree ? "Free Plan" : isPlus ? "Plus Plan" : "Premium Plan";
-  const planSubtitle = isFree
-    ? "Upgrade to Plus or Premium"
-    : isPlus
-      ? "Upgrade to Premium for VIP perks"
-      : "All privileges active";
+  const planRaw = state?.subscription?.planKey || state?.subscription?.plan || state?.subscription?.name || state?.entitlement?.plan || "explore";
+  const activePlanKey = normalizePlanKey(planRaw);
+  const isPremium = activePlanKey === "premium";
+  const isConnect = activePlanKey === "connect";
+  const planBadge = getPlanBadge(activePlanKey);
 
   return (
     <aside className={`sticky top-0 h-screen m-0 flex flex-col bg-gradient-to-b from-[#1e0d26] to-[#120718] border-r border-white/10 rounded-r-[32px] shadow-[12px_0_40px_rgba(0,0,0,0.42),0_0_0_1px_rgba(244,63,94,0.06)] backdrop-blur-xl z-50 overflow-y-auto no-scrollbar transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${isCollapsed ? "w-[76px] px-2 py-5 rounded-r-[20px] items-center" : "w-[240px] pt-6 pb-5 pl-5 pr-5"}`}>
@@ -134,30 +129,23 @@ export default function Rail() {
                 <Icon name={item.icon} className={`w-[21px] h-[21px] stroke-[2] transition-transform duration-150 group-hover:scale-105 ${isActive ? "stroke-white stroke-[2.2]" : "stroke-currentColor"}`} />
               </span>
               {!isCollapsed && <span className="flex items-center flex-1 leading-none tracking-tight">{item.label}</span>}
+              {!isCollapsed && Boolean(planBadge) && item.id === "membership" && (
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${
+                  isActive 
+                    ? "bg-white/20 text-white" 
+                    : isPremium 
+                      ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                      : "bg-pink-500/20 text-pink-300 border border-pink-500/30"
+                }`}>
+                  {planBadge}
+                </span>
+              )}
             </button>
           );
         })}
       </nav>
 
-      <div className="mt-auto pt-6 flex flex-col gap-4">
-        {/* Free Plan Upgrade Card */}
-        <div
-          className={`bg-gradient-to-b from-[#240e28] to-[#17091a] border border-[#f43f5e]/25 rounded-[18px] cursor-pointer transition-all duration-200 shadow-[0_8px_24px_rgba(0,0,0,0.3)] hover:border-[#f43f5e]/50 hover:-translate-y-0.5 hover:shadow-[0_10px_28px_rgba(225,29,72,0.22)] ${isCollapsed ? "p-2 text-center flex justify-center rounded-xl" : "px-5 py-4.5"}`}
-          onClick={() => navigate("membership")}
-          role="button"
-          tabIndex="0"
-          aria-label="Membership plans"
-          title={isCollapsed ? planName : undefined}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[#fb7185] text-[0.78rem] font-extrabold tracking-[0.08em] uppercase flex items-center gap-1.5">
-              <span className="text-[#f43f5e] text-[0.9rem]">✦</span> {isCollapsed ? "VIP" : planBadge}
-            </span>
-            {!isCollapsed && <span className="text-white text-[1.1rem] opacity-90 transition-transform duration-200 hover:translate-x-0.5 hover:-translate-y-0.5">↗</span>}
-          </div>
-          {!isCollapsed && <div className="text-white text-[1.05rem] font-bold mt-2 tracking-tight">{planName}</div>}
-          {!isCollapsed && <div className="text-[#9a889c] text-[0.82rem] mt-1">{planSubtitle}</div>}
-        </div>
+      <div className="mt-auto pt-4 flex flex-col gap-3">
 
         {/* Member Footer */}
         <div

@@ -55,11 +55,6 @@ export default function ContactDrawer({
           </h3>
           <p className="text-sm text-muted mb-3">{peer.zone || "World Traveler"}</p>
           
-          {peer.isBot && (
-            <span className="px-3 py-1 bg-pink/20 text-pink text-xs font-bold rounded-full uppercase tracking-wider mb-4 border border-pink/30">
-              Juicy Match AI
-            </span>
-          )}
 
           {activeConn?.compatibility && (
             <div className="flex flex-col items-center gap-1 mt-2 p-3 bg-surface rounded-xl border border-line w-full">

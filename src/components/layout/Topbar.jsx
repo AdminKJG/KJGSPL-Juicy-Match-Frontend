@@ -4,6 +4,8 @@ import Avatar from "../common/Avatar";
 import { useApp } from "../../context/AppContext";
 import { title } from "../../utils/formatters";
 
+import WalletBadge from "./WalletBadge";
+
 export default function Topbar() {
   const { state, navigate } = useApp();
 
@@ -20,28 +22,16 @@ export default function Topbar() {
   };
 
   const pseudonym = state?.me?.profile?.pseudonym || "Member";
-  const plan = title(state?.entitlement?.plan || "free");
+  const plan = title(state?.subscription?.name || state?.subscription?.planKey || state?.entitlement?.plan || "free");
   const notificationsCount = state?.notifications?.filter((n) => !n.read).length || 47;
 
   return (
     <header className="sticky top-0 z-40 h-[72px] bg-night/80 backdrop-blur-md border-b border-white/10 flex items-center justify-between px-6">
-      <div className="flex items-center flex-1">
-        <div className="relative w-full max-w-md hidden md:block">
-          <Icon name="search" className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-          <input
-            type="text"
-            className="w-full bg-white/5 border border-white/10 rounded-full h-[42px] pl-10 pr-4 text-sm text-white placeholder-muted focus:outline-none focus:border-pink/50 focus:bg-white/10 transition-all"
-            placeholder="Search connections, sparks, messages…"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                navigate("explore");
-              }
-            }}
-          />
-        </div>
-      </div>
+      <div className="flex items-center flex-1" />
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 sm:gap-4">
+        {/* Dual-Credit Wallet Badge */}
+        <WalletBadge />
         {/* AI Assistant Button */}
         <button
           type="button"

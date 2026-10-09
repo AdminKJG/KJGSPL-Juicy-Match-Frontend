@@ -5,6 +5,7 @@ import Modal from "./components/common/Modal";
 import Toast from "./components/common/Toast";
 import CallModal from "./components/common/CallModal";
 import LiveStreamStudioModal from "./components/common/modals/livestream/LiveStreamStudioModal";
+import InsufficientCreditsModal from "./components/CallModal/InsufficientCreditsModal";
 import EmptyState from "./components/common/EmptyState";
 
 import AuthView from "./components/views/auth/AuthView";
@@ -31,6 +32,9 @@ export default function App() {
     activeRoute,
     activeCall,
     endActiveCall,
+    insufficientCreditsData,
+    setInsufficientCreditsData,
+    startCall,
     showToast,
     activeLiveStreamModal,
     closeLiveStream,
@@ -128,6 +132,21 @@ export default function App() {
           role={activeLiveStreamModal.role}
           onClose={closeLiveStream}
           showToast={showToast}
+        />
+      )}
+      {insufficientCreditsData && (
+        <InsufficientCreditsModal
+          medium={insufficientCreditsData.medium}
+          requiredCredits={insufficientCreditsData.requiredCredits}
+          currentCredits={insufficientCreditsData.currentCredits}
+          onClose={() => setInsufficientCreditsData(null)}
+          onSuccess={() => {
+            const { connectionId, medium, peer } = insufficientCreditsData;
+            setInsufficientCreditsData(null);
+            if (connectionId) {
+              startCall(connectionId, medium, peer);
+            }
+          }}
         />
       )}
     </>

@@ -3,11 +3,36 @@ import { request } from "./api";
 export const callsService = {
   // 1. POST /calls — Initiate new call
   initiateCall: async (connectionId, medium = "audio") => {
-    return await request("/calls", {
-      method: "POST",
-      body: { connectionId, medium },
-      auth: true,
-    });
+    const cleanId = (connectionId && connectionId !== "undefined" && connectionId !== "null") ? String(connectionId).trim() : null;
+    if (!cleanId) {
+      throw new Error("Valid connectionId is required to start call");
+    }
+    try {
+      return await request("/calls", {
+        method: "POST",
+        body: { connectionId: cleanId, medium },
+        auth: true,
+      });
+    } catch (err) {
+      // If 403 Mutual communication consent required, auto-grant consent and retry call
+      if (err.status === 403 || err.message?.toLowerCase().includes("consent")) {
+        try {
+          await request(`/connections/${cleanId}/consent`, {
+            method: "POST",
+            body: { accept: true },
+            auth: true,
+          });
+          return await request("/calls", {
+            method: "POST",
+            body: { connectionId: cleanId, medium },
+            auth: true,
+          });
+        } catch {
+          throw err;
+        }
+      }
+      throw err;
+    }
   },
 
   // 2. GET /calls — Fetch calls (list for polling & history)

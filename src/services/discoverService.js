@@ -13,11 +13,23 @@ export const discoverService = {
 
   // 3.2 Swipe Action (like, pass, save, withdraw)
   swipe: async (target, action = "like") => {
-    return await request("/swipes", {
+    const res = await request("/swipes", {
       method: "POST",
       body: { target, action },
       auth: true,
     });
+    if (res && typeof res === "object") {
+      const vId = res.connectionId || res.id || res.connection?.id || (res.connection && res.connection.connectionId);
+      if (vId) {
+        res.id = vId;
+        res.connectionId = vId;
+        if (res.connection && typeof res.connection === "object") {
+          res.connection.id = vId;
+          res.connection.connectionId = vId;
+        }
+      }
+    }
+    return res;
   },
 
   // 3.3 Undo Latest Pass Swipe

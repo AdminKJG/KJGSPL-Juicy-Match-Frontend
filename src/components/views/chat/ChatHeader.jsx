@@ -137,12 +137,7 @@ export default function ChatHeader({
                   LIVE
                 </span>
               )}
-              {peer.isBot && !isLive && (
-                <span style={{ fontSize: "9px", padding: "2px 6px", borderRadius: "4px", background: "rgba(233,22,113,0.15)", color: "#e91671", border: "1px solid rgba(233,22,113,0.3)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>
-                  AI
-                </span>
-              )}
-              {peer.zone && !peer.isBot && (
+              {peer.zone && (
                 <span style={{ fontSize: "9px", padding: "2px 6px", borderRadius: "4px", background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.45)", fontWeight: 600, flexShrink: 0 }}>
                   📍 {peer.zone}
                 </span>
@@ -187,14 +182,14 @@ export default function ChatHeader({
         )}
 
         {/* Voice Call */}
-        <HeaderBtn onClick={onAudioCall} title="Voice Call" accent>
+        <HeaderBtn onClick={onAudioCall} title="Voice Call (5 FC / min · Caller Billed)" accent>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.21 3.53 2 2 0 0 1 3.18 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16z"/>
           </svg>
         </HeaderBtn>
 
         {/* Video Call */}
-        <HeaderBtn onClick={onVideoCall} title="Video Call" accent>
+        <HeaderBtn onClick={onVideoCall} title="Video Call (15 FC / min · Caller Billed)" accent>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
           </svg>

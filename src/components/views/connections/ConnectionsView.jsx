@@ -13,6 +13,7 @@ export default function ConnectionsView({ isMessages = false }) {
   const [activeCategory, setActiveCategory] = useState("mutual");
   const [loading, setLoading] = useState(false);
   const [withdrawingId, setWithdrawingId] = useState(null);
+  const [acceptingId, setAcceptingId] = useState(null);
   const [connectionsData, setConnectionsData] = useState({
     items: [],
     inbound: [],
@@ -29,6 +30,7 @@ export default function ConnectionsView({ isMessages = false }) {
           inbound: res.inbound || [],
           outbound: res.outbound || [],
         });
+        return res;
       }
     } catch (err) {
       console.warn("Connections fetch failed:", err.message);
@@ -47,14 +49,73 @@ export default function ConnectionsView({ isMessages = false }) {
     showToast("Connections refreshed.");
   };
 
-  const handleAcceptInbound = async (connId, peerName) => {
+  const handleAcceptInbound = async (item, peerName) => {
+    const rawPeer = item?.peer || {};
+    const effectiveId = item?.id || rawPeer.id || "accepting";
+    setAcceptingId(effectiveId);
     try {
-      await chatService.giveConsent(connId, true);
+      const swipeId = item?.swipe_id || item?.swipeId;
+      const peerId =
+        rawPeer.id ||
+        rawPeer._id ||
+        item?.peerId ||
+        item?.peer_id ||
+        item?.actorId ||
+        item?.senderId ||
+        item?.fromId ||
+        item?.targetId ||
+        (item?.id && !String(item.id).startsWith("conn_") ? item.id : null);
+
+      const connId =
+        item?.connectionId ||
+        item?.connection_id ||
+        item?.connection?.id ||
+        (item?.id && String(item.id).startsWith("conn_") ? item.id : null);
+
+      let targetChatId = connId;
+      if (connId) {
+        try {
+          const consentRes = await chatService.giveConsent(connId, true);
+          if (consentRes?.connectionId || consentRes?.id) {
+            targetChatId = consentRes.connectionId || consentRes.id;
+          }
+        } catch (consentErr) {
+          console.warn("[Consent Note]:", consentErr.message);
+        }
+      }
+
+      // 2. If no connection ID, swipe like back to create mutual match
+      if (!targetChatId && peerId) {
+        try {
+          const swipeRes = await discoverService.swipe(peerId, "like");
+          targetChatId =
+            swipeRes?.connectionId ||
+            swipeRes?.id ||
+            swipeRes?.connection?.id ||
+            swipeRes?.connection?.connectionId;
+        } catch (swipeErr) {
+          console.warn("[Swipe Back Note]:", swipeErr.message);
+        }
+      }
       showToast(`Spark accepted! You and ${peerName || "this member"} can now chat.`);
-      await loadConnections();
-      navigate(`chat/${connId}`);
+      const refreshed = await loadConnections();
+      if (!targetChatId && Array.isArray(refreshed?.items)) {
+        const found = refreshed.items.find(
+          (m) => m.peer?.id === peerId || m.id === swipeId || m.connectionId === swipeId
+        );
+        if (found) {
+          targetChatId = found.id || found.connectionId;
+        }
+      }
+      if (targetChatId) {
+        navigate(`chat/${targetChatId}`);
+      } else {
+        setActiveCategory("mutual");
+      }
     } catch (err) {
       showToast(err.message || "Failed to accept connection.");
+    } finally {
+      setAcceptingId(null);
     }
   };
 
@@ -164,12 +225,14 @@ export default function ConnectionsView({ isMessages = false }) {
         </div>
       ) : displayedConnections.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {displayedConnections.map((c) => {
+          {displayedConnections.map((c, index) => {
             const isMutual = activeCategory === "mutual";
             const isSent = activeCategory === "sent";
             const isLikedYou = activeCategory === "liked_you";
 
             const rawPeer = c.peer || {};
+            const itemKey = c.id || c.connectionId || rawPeer.id || `conn-${index}`;
+            const uniqueCardKey = `${itemKey}-${index}`;
             const portraitIdx = getPeerPortraitIndex(rawPeer);
             const peerName = rawPeer.pseudonym || "Member";
             const photoUrl =
@@ -188,7 +251,7 @@ export default function ConnectionsView({ isMessages = false }) {
 
             return (
               <article
-                key={c.id}
+                key={uniqueCardKey}
                 className={`bg-surface rounded-3xl overflow-hidden shadow-lg border transition-transform hover:-translate-y-1 group flex flex-col ${
                   isMutual ? "border-pink/30" : isSent ? "border-white/5" : "border-lilac/30"
                 }`}
@@ -246,7 +309,12 @@ export default function ConnectionsView({ isMessages = false }) {
                       <button
                         type="button"
                         className="w-full flex items-center justify-center gap-2 bg-pink hover:bg-[#ff2a85] text-white font-bold py-2.5 rounded-xl transition-all hover:-translate-y-0.5 shadow-lg shadow-pink/20"
-                        onClick={() => navigate(`chat/${c.id}`)}
+                        onClick={() => {
+                          const targetId = c.id || c.connectionId || c.connection_id;
+                          if (targetId && targetId !== "undefined") {
+                            navigate(`chat/${targetId}`);
+                          }
+                        }}
                       >
                         <span>Open chat</span>
                         <Icon name="arrow" className="w-4 h-4" />
@@ -254,11 +322,12 @@ export default function ConnectionsView({ isMessages = false }) {
                     ) : isLikedYou ? (
                       <button
                         type="button"
-                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#10b981] to-[#059669] hover:from-[#34d399] hover:to-[#10b981] text-white font-bold py-2.5 rounded-xl transition-all hover:-translate-y-0.5 shadow-lg"
-                        onClick={() => handleAcceptInbound(c.id, peerName)}
+                        disabled={Boolean(acceptingId)}
+                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#10b981] to-[#059669] hover:from-[#34d399] hover:to-[#10b981] text-white font-bold py-2.5 rounded-xl transition-all hover:-translate-y-0.5 shadow-lg disabled:opacity-50 cursor-pointer"
+                        onClick={() => handleAcceptInbound(c, peerName)}
                       >
-                        <span>Accept & Chat</span>
-                        <Icon name="arrow" className="w-4 h-4" />
+                        <span>{acceptingId === (c?.id || rawPeer.id) ? "Connecting…" : "Accept & Chat"}</span>
+                        <Icon name="arrow" className={`w-4 h-4 ${acceptingId === (c?.id || rawPeer.id) ? "animate-spin" : ""}`} />
                       </button>
                     ) : (
                       <button
