@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { livestreamService } from "../services/livestreamService";
 import { blockService } from "../services/blockService";
+import { socketService } from "../services/socketService";
 
 export function useLiveStreamManager({ authenticated, me, showToast }) {
   const [activeLiveStreams, setActiveLiveStreams] = useState([]);
@@ -8,8 +9,19 @@ export function useLiveStreamManager({ authenticated, me, showToast }) {
 
   const openLiveStream = useCallback((stream, role = "viewer") => {
     if (!stream) return;
-    setActiveLiveStreamModal({ stream, role });
-  }, []);
+    const myId = me?.id || me?.account?.id;
+    const myName = (me?.profile?.pseudonym || me?.account?.pseudonym || me?.name || "").trim().toLowerCase();
+    const hostId = stream.hostId || stream.creator || stream.userId;
+    const hostName = (stream.pseudonym || stream.hostName || stream.creator || "").trim().toLowerCase();
+
+    const isMine = Boolean(
+      role === "host" ||
+      (myId && hostId && String(myId) === String(hostId)) ||
+      (myName && hostName && myName === hostName)
+    );
+
+    setActiveLiveStreamModal({ stream, role: isMine ? "host" : "viewer" });
+  }, [me]);
 
   const closeLiveStream = useCallback(() => {
     setActiveLiveStreamModal(null);
@@ -96,7 +108,11 @@ export function useLiveStreamManager({ authenticated, me, showToast }) {
   useEffect(() => {
     if (!authenticated) return;
     refreshLiveStreams();
-    const interval = setInterval(refreshLiveStreams, 10000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      if (socketService.isConnected) return;
+      refreshLiveStreams();
+    }, 60000);
 
     let channel = null;
     const handleBroadcastData = (data) => {

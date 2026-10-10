@@ -33,11 +33,19 @@ class SocketService {
       this.socket = null;
     }
 
+    const cleanToken = (authToken || "").replace(/^Bearer\s+/i, "").trim();
+
     try {
       console.log("[JM Socket] Connecting to:", RAW_SOCKET_URL);
       this.socket = io(RAW_SOCKET_URL, {
         auth: {
-          token: authToken.startsWith("Bearer ") ? authToken : `Bearer ${authToken}`,
+          token: cleanToken,
+          accessToken: cleanToken,
+          rawToken: cleanToken,
+          authorization: `Bearer ${cleanToken}`,
+        },
+        extraHeaders: {
+          Authorization: `Bearer ${cleanToken}`,
         },
         transports: ["websocket", "polling"],
         reconnection: true,
@@ -67,10 +75,39 @@ class SocketService {
         }
       });
 
-      this.socket.on("connect_error", (err) => {
+      this.socket.on("connect_error", async (err) => {
         console.warn("❌ [JM Socket] Connection error:", err.message);
         this.isConnected = false;
         this._notifyListeners("connect_error", err);
+
+        if (err.message && (err.message.includes("Authentication error") || err.message.includes("expired") || err.message.includes("Invalid"))) {
+          const { refreshToken } = getStoredTokens();
+          if (refreshToken && !this._isRefreshing) {
+            this._isRefreshing = true;
+            try {
+              const refreshUrl = RAW_API_URL ? `${RAW_API_URL}/v1/auth/refresh` : "/v1/auth/refresh";
+              const res = await fetch(refreshUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${refreshToken}` },
+                body: JSON.stringify({ refreshToken, refresh_token: refreshToken }),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                const newToken = data.token || data.accessToken;
+                if (newToken) {
+                  localStorage.setItem("jm_access_token", newToken);
+                  localStorage.setItem("jm_token", newToken);
+                  if (this.socket) {
+                    this.socket.auth.token = newToken.replace(/^Bearer\s+/i, "").trim();
+                    this.socket.connect();
+                  }
+                }
+              }
+            } catch {} finally {
+              setTimeout(() => { this._isRefreshing = false; }, 3000);
+            }
+          }
+        }
       });
 
       this.socket.on("disconnect", (reason) => {
@@ -311,6 +348,9 @@ class SocketService {
       // 5. Notifications
       "notification:received",
       "notification:badge_update",
+      "notification:new",
+      "notification:count",
+      "notification:read",
 
       // 6. Private Photo Requests
       "photo_request:received",

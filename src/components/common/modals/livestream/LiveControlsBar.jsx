@@ -48,7 +48,7 @@ export default function LiveControlsBar({
             onSendReaction?.("💖");
             onSendReaction?.("✨");
           }}
-          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-pink via-[#ff2a85] to-rose-400 text-white flex items-center justify-center text-xl shadow-[0_0_16px_rgba(233,22,113,0.6)] active:scale-110 hover:scale-105 transition-all cursor-pointer select-none shrink-0"
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-pink hover:bg-pink-600 text-white flex items-center justify-center text-xl active:scale-110 hover:scale-105 transition-all cursor-pointer select-none shrink-0"
           title="Send heart burst"
         >
           ❤️
@@ -91,7 +91,7 @@ export default function LiveControlsBar({
               onClick={onToggleMute}
               className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border cursor-pointer ${
                 isMuted
-                  ? "bg-red-500/30 border-red-500/60 text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.4)]"
+                  ? "bg-red-500/30 border-red-500/60 text-red-300"
                   : "bg-white/10 hover:bg-white/20 border-white/15 text-white"
               }`}
               title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
@@ -105,7 +105,7 @@ export default function LiveControlsBar({
               onClick={onToggleVideo}
               className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border cursor-pointer ${
                 isVideoOff
-                  ? "bg-red-500/30 border-red-500/60 text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.4)]"
+                  ? "bg-red-500/30 border-red-500/60 text-red-300"
                   : "bg-white/10 hover:bg-white/20 border-white/15 text-white"
               }`}
               title={isVideoOff ? "Turn Camera On" : "Turn Camera Off"}
@@ -117,9 +117,11 @@ export default function LiveControlsBar({
             <button
               type="button"
               onClick={onEndStream}
-              className="h-10 px-3.5 rounded-full bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white text-xs font-bold shadow-[0_4px_14px_rgba(220,38,38,0.4)] transition-all cursor-pointer whitespace-nowrap"
+              className="h-10 px-4 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold border border-red-500/40 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 hover:scale-105 active:scale-95"
+              title="End this live broadcast"
             >
-              End
+              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              <span>End Live</span>
             </button>
           </div>
         ) : (

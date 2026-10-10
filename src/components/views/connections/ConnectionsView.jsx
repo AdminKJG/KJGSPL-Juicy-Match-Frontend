@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Icon from "../../common/Icon";
 import PageHead from "../../common/PageHead";
 import EmptyState from "../../common/EmptyState";
@@ -11,7 +11,8 @@ import { portraitClass, title, getPeerPortraitIndex } from "../../../utils/forma
 export default function ConnectionsView({ isMessages = false }) {
   const { state, navigate, showToast } = useApp();
   const [activeCategory, setActiveCategory] = useState("mutual");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const isLoadingRef = useRef(false);
   const [withdrawingId, setWithdrawingId] = useState(null);
   const [acceptingId, setAcceptingId] = useState(null);
   const [connectionsData, setConnectionsData] = useState({

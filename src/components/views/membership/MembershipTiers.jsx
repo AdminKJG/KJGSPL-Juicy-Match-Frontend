@@ -1,14 +1,14 @@
 import React from "react";
-import { money } from "../../../utils/formatters";
 import { normalizePlanKey } from "../../../utils/planUtils";
+import { formatPrice, resolvePlanPrice } from "../../../utils/pricingUtils";
 
 /**
  * MembershipTiers
  * ────────────────────────────────────────────────────────────────────────────
  * Renders the 3 subscription tiers aligned with Section 1.3:
- * - Explore (Free, $0)
- * - Connect ($14.99/mo, $39.99/3mo)
- * - Premium ($24.99/mo, $64.99/3mo)
+ * - Explore (Free, $0 / ₹0)
+ * - Connect ($14.99/mo | ₹1,249/mo)
+ * - Premium ($24.99/mo | ₹2,099/mo)
  */
 export default function MembershipTiers({
   activePlan: propActivePlan = "explore",
@@ -21,37 +21,26 @@ export default function MembershipTiers({
   const activePlan = normalizePlanKey(propActivePlan);
 
   const quotes = Array.isArray(availableQuotes) ? availableQuotes : [];
+  const connectSku = billingInterval === "monthly" ? "jm.connect.monthly" : "jm.connect.quarterly";
+  const premiumSku = billingInterval === "monthly" ? "jm.premium.monthly" : "jm.premium.quarterly";
+
   const connectQuote = quotes.find(
-    (q) => (q.plan === "connect" || q.sku?.includes("connect")) &&
+    (q) => (q.plan === "connect" || q.sku === connectSku || q.sku?.includes("connect")) &&
            (billingInterval === "monthly" ? (q.interval === "month" || q.sku?.includes("monthly")) : (q.interval === "quarter" || q.sku?.includes("quarterly")))
   );
   const premiumQuote = quotes.find(
-    (q) => (q.plan === "premium" || q.sku?.includes("premium")) &&
+    (q) => (q.plan === "premium" || q.sku === premiumSku || q.sku?.includes("premium")) &&
            (billingInterval === "monthly" ? (q.interval === "month" || q.sku?.includes("monthly")) : (q.interval === "quarter" || q.sku?.includes("quarterly")))
   );
 
-  const formatTierPrice = (quote, fallbackCents) => {
-    if (quote?.price != null) {
-      const p = quote.price;
-      const cur = quote.currency || selectedCurrency;
-      if (p < 100 && p > 0 && !Number.isInteger(p)) {
-        return money(p, cur, 0);
-      }
-      if (p >= 100) {
-        return money(p, cur);
-      }
-      return money(p, cur, 0);
-    }
-    return money(fallbackCents, selectedCurrency);
-  };
-
   const connectFcGrant = connectQuote?.featureCredits ?? 1000;
   const connectAiGrant = connectQuote?.aiCredits ?? 100;
-  const connectSku = connectQuote?.sku || (billingInterval === "monthly" ? "jm.connect.monthly" : "jm.connect.quarterly");
 
   const premiumFcGrant = premiumQuote?.featureCredits ?? 2500;
   const premiumAiGrant = premiumQuote?.aiCredits ?? 250;
-  const premiumSku = premiumQuote?.sku || (billingInterval === "monthly" ? "jm.premium.monthly" : "jm.premium.quarterly");
+
+  const connectPrice = resolvePlanPrice(connectSku, selectedCurrency, connectQuote);
+  const premiumPrice = resolvePlanPrice(premiumSku, selectedCurrency, premiumQuote);
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
       {/* ── 1. Explore (Free) ── */}
@@ -68,7 +57,7 @@ export default function MembershipTiers({
         <h3 className="text-2xl font-serif font-bold text-white m-0">Explore</h3>
         <div className="flex items-baseline gap-2 mt-3 mb-5">
           <span className="text-4xl font-bold text-white tracking-tight">
-            {money(0, selectedCurrency)}
+            {formatPrice(0, selectedCurrency)}
           </span>
           <span className="text-muted font-medium text-xs">/ forever</span>
         </div>
@@ -129,7 +118,7 @@ export default function MembershipTiers({
         <h3 className="text-2xl font-serif font-bold text-white m-0">Connect</h3>
         <div className="flex items-baseline gap-2 mt-3 mb-5">
           <span className="text-4xl font-bold text-white tracking-tight">
-            {formatTierPrice(connectQuote, billingInterval === "monthly" ? 1499 : 3999)}
+            {connectQuote?.formattedPrice || formatPrice(connectPrice, selectedCurrency, connectQuote)}
           </span>
           <span className="text-muted font-medium text-xs">
             /{billingInterval === "monthly" ? "month" : "3 months"}
@@ -190,7 +179,7 @@ export default function MembershipTiers({
         <h3 className="text-2xl font-serif font-bold text-white m-0">Premium</h3>
         <div className="flex items-baseline gap-2 mt-3 mb-5">
           <span className="text-4xl font-bold text-white tracking-tight">
-            {formatTierPrice(premiumQuote, billingInterval === "monthly" ? 2499 : 6499)}
+            {premiumQuote?.formattedPrice || formatPrice(premiumPrice, selectedCurrency, premiumQuote)}
           </span>
           <span className="text-muted font-medium text-xs">
             /{billingInterval === "monthly" ? "month" : "3 months"}

@@ -570,6 +570,7 @@ export default function MessageList({
   setShowDropdownMsgId,
   onToggleAudio,
   playingAudioId,
+  isPeerTyping = false,
 }) {
   const { isPeerLive, openLiveStream, activeLiveStreams } = useApp();
   const scrollRef = useRef(null);
@@ -627,11 +628,11 @@ export default function MessageList({
 
       const isMine = lastMsg && (lastMsg.sender === meId || lastMsg.isMine === true || lastMsg.mine === true);
       
-      if (isNearBottomRef.current || (isNewMessage && isMine) || loading) {
+      if (isNearBottomRef.current || (isNewMessage && isMine) || isPeerTyping || loading) {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
     }
-  }, [messages, loading, meId]);
+  }, [messages, loading, meId, isPeerTyping]);
 
   useEffect(() => {
     const handler = () => { setShowDropdownMsgId(null); setHoverDrop(null); };
@@ -843,6 +844,60 @@ export default function MessageList({
             </React.Fragment>
           );
         })}
+
+        {/* Peer / Bot Typing Bubble */}
+        {isPeerTyping && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-end",
+              gap: "8px",
+              margin: "6px 0 12px 0",
+              animation: "jm-fade-in 0.2s ease-out",
+            }}
+          >
+            <div
+              style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #e91671 0%, #7c3aed 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#fff",
+                fontSize: "10px",
+                fontWeight: 800,
+                flexShrink: 0,
+                overflow: "hidden",
+                border: "1.5px solid rgba(255,255,255,0.15)",
+              }}
+            >
+              {peer?.photo ? (
+                <img src={peer.photo} alt={peer?.pseudonym || "Match"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                (peer?.pseudonym || peer?.name || "B").slice(0, 2).toUpperCase()
+              )}
+            </div>
+
+            <div
+              style={{
+                background: "rgba(35, 17, 48, 0.92)",
+                border: "1px solid rgba(255, 255, 255, 0.12)",
+                borderRadius: "18px 18px 18px 4px",
+                padding: "10px 16px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+              }}
+            >
+              <span className="jm-typing-dot" style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#f472b6", display: "inline-block" }} />
+              <span className="jm-typing-dot" style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#f472b6", display: "inline-block", animationDelay: "0.18s" }} />
+              <span className="jm-typing-dot" style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#f472b6", display: "inline-block", animationDelay: "0.36s" }} />
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

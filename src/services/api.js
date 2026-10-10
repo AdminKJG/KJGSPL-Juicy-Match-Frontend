@@ -89,7 +89,7 @@ export async function request(path, options = {}) {
   if (!cleanPath.startsWith("http://") && !cleanPath.startsWith("https://")) {
     let relative = cleanPath.startsWith("/") ? cleanPath : `/${cleanPath}`;
     // Guarantee /v1 prefix for backend routes
-    if (!relative.startsWith("/v1") && !relative.startsWith("/api")) {
+    if (!relative.startsWith("/v1") && !relative.startsWith("/api") && !relative.startsWith("/checkout")) {
       relative = `/v1${relative}`;
     } else if (relative.startsWith("/api")) {
       relative = relative.replace(/^\/api/, "/v1");
@@ -99,6 +99,14 @@ export async function request(path, options = {}) {
 
   const { token, refreshToken } = getStoredTokens();
   const isMutation = method !== "GET" && method !== "HEAD";
+
+  // Prevent sending unauthenticated requests to protected endpoints
+  if (auth && !token) {
+    const err = new Error("Sign in required to access this resource.");
+    err.status = 401;
+    err.data = { error: "Sign in required" };
+    throw err;
+  }
 
   const requestHeaders = {
     Accept: "application/json",
@@ -134,34 +142,53 @@ export async function request(path, options = {}) {
   try {
     response = await fetch(cleanPath, config);
   } catch (err) {
+    const detail = err?.message ? ` (${err.message})` : "";
     throw new Error(
-      "Connection error. Please check your backend connection and retry."
+      `Network connection error${detail}. Please check that your backend server is running and accessible.`
     );
   }
 
   // Handle 401 Unauthorized & try refresh token if available
-  if (response.status === 401 && auth && refreshToken && !cleanPath.includes("/auth/")) {
-    try {
-      const refreshUrl = RAW_BASE_URL ? `${RAW_BASE_URL}/v1/auth/refresh` : "/v1/auth/refresh";
-      const refreshRes = await fetch(refreshUrl, {
-        method: "POST",
-        credentials: "include",
-        headers: {
+  if (response.status === 401 && auth && !cleanPath.includes("/auth/")) {
+    let refreshed = false;
+    if (refreshToken) {
+      try {
+        const refreshUrl = RAW_BASE_URL ? `${RAW_BASE_URL}/v1/auth/refresh` : "/v1/auth/refresh";
+        const refreshHeaders = {
           "Content-Type": "application/json",
           Accept: "application/json",
           ...(csrf ? { "X-CSRF-Token": csrf } : {}),
-        },
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (refreshRes.ok) {
-        const refreshData = await refreshRes.json();
-        if (refreshData.csrf) csrf = refreshData.csrf;
-        setStoredTokens(refreshData.token, refreshData.refreshToken);
-        // Retry original request with new token
-        requestHeaders["Authorization"] = `Bearer ${refreshData.token}`;
-        response = await fetch(cleanPath, { ...config, headers: requestHeaders });
-      }
-    } catch {}
+          Authorization: `Bearer ${refreshToken}`,
+        };
+        const refreshRes = await fetch(refreshUrl, {
+          method: "POST",
+          credentials: "include",
+          headers: refreshHeaders,
+          body: JSON.stringify({ refreshToken, refresh_token: refreshToken }),
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          if (refreshData.csrf) csrf = refreshData.csrf;
+          const newToken = refreshData.token || refreshData.accessToken;
+          const newRefreshToken = refreshData.refreshToken || refreshToken;
+          setStoredTokens(newToken, newRefreshToken);
+          // Retry original request with new token
+          requestHeaders["Authorization"] = `Bearer ${newToken}`;
+          response = await fetch(cleanPath, { ...config, headers: requestHeaders });
+          refreshed = response.ok;
+        }
+      } catch {}
+    }
+
+    // If still 401 or refresh was not possible, clear stale tokens and broadcast expiry
+    if (response.status === 401 && !refreshed) {
+      clearStoredTokens();
+      window.dispatchEvent(
+        new CustomEvent("jm-session-expired", {
+          detail: { path: cleanPath, status: 401, message: "Your session has expired or is invalid. Please sign in again." },
+        })
+      );
+    }
   }
 
   let data;
@@ -177,11 +204,47 @@ export async function request(path, options = {}) {
   }
 
   if (!response.ok) {
-    const errorMsg =
-      (typeof data?.error === "string" ? data.error : data?.error?.message) ||
-      (typeof data?.message === "string" ? data.message : null) ||
-      (Array.isArray(data?.errors) ? data.errors.map(e => e.msg || e.message || e).join(", ") : null) ||
-      "Request failed with status " + response.status;
+    let errorMsg = null;
+
+    if (typeof data === "string" && data.trim()) {
+      errorMsg = data.trim();
+    } else if (data && typeof data === "object") {
+      if (typeof data.error === "string" && data.error.trim()) {
+        errorMsg = data.error.trim();
+      } else if (typeof data.message === "string" && data.message.trim()) {
+        errorMsg = data.message.trim();
+      } else if (typeof data.msg === "string" && data.msg.trim()) {
+        errorMsg = data.msg.trim();
+      } else if (typeof data.detail === "string" && data.detail.trim()) {
+        errorMsg = data.detail.trim();
+      } else if (data.error && typeof data.error === "object") {
+        errorMsg = data.error.message || data.error.msg || data.error.detail || null;
+      }
+
+      if (!errorMsg) {
+        const list = Array.isArray(data.errors)
+          ? data.errors
+          : Array.isArray(data.detail)
+          ? data.detail
+          : Array.isArray(data.error)
+          ? data.error
+          : null;
+        if (list && list.length > 0) {
+          errorMsg = list
+            .map((e) => (typeof e === "string" ? e : e?.msg || e?.message || e?.detail || JSON.stringify(e)))
+            .join(", ");
+        } else if (data.errors && typeof data.errors === "object") {
+          errorMsg = Object.entries(data.errors)
+            .map(([k, v]) => `${k}: ${typeof v === "object" ? v?.msg || v?.message || JSON.stringify(v) : v}`)
+            .join(", ");
+        }
+      }
+    }
+
+    if (!errorMsg) {
+      errorMsg = `Server error (${response.status}): ${response.statusText || "Request failed"}`;
+    }
+
     const err = new Error(errorMsg);
     err.status = response.status;
     err.data = data;

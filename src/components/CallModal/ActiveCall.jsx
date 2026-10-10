@@ -34,10 +34,44 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
   const simAnimRef = useRef(null);
 
   const peer = call?.peer || {};
-  const peerName = peer.pseudonym || peer.name || "Member";
-  const avatarUrl = peer.avatar || peer.photo || "/assets/logo.jpg";
+
+  // Match against known connections to get rich peer data if missing
+  const matchedConn = state?.connections?.find(
+    (c) =>
+      (call?.connectionId && (c.id === call.connectionId || c.connectionId === call.connectionId)) ||
+      (call?.caller && (c.peer?.id === call.caller || c.peerId === call.caller)) ||
+      (call?.receiver && (c.peer?.id === call.receiver || c.peerId === call.receiver)) ||
+      (peer?.id && (c.peer?.id === peer.id || c.peerId === peer.id))
+  );
+
+  const remoteParticipant = Array.from(room?.remoteParticipants?.values() || [])[0];
+
+  const peerName =
+    peer.pseudonym ||
+    peer.name ||
+    peer.username ||
+    call?.callerName ||
+    call?.caller_name ||
+    call?.receiverName ||
+    call?.receiver_name ||
+    call?.peerName ||
+    matchedConn?.peer?.pseudonym ||
+    matchedConn?.peer?.name ||
+    matchedConn?.pseudonym ||
+    remoteParticipant?.name ||
+    (remoteParticipant?.identity && !remoteParticipant.identity.startsWith("user-") && !remoteParticipant.identity.startsWith("jm-") ? remoteParticipant.identity : null) ||
+    "Match";
+
+  const avatarUrl =
+    peer.avatar ||
+    peer.photo ||
+    peer.avatarUrl ||
+    matchedConn?.peer?.photo ||
+    matchedConn?.peer?.avatar ||
+    "/assets/logo.jpg";
   const myName = state?.me?.profile?.pseudonym || state?.me?.pseudonym || "You";
   const myAvatar = state?.me?.profile?.photo || state?.me?.avatar || null;
+  const isMinimized = sizeMode === "minimized";
   const isExpanded = sizeMode === "theater" || sizeMode === "fullscreen";
 
   // Alphabetical / Initial helpers (like WhatsApp)
@@ -266,7 +300,7 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
   }, [room, isVideo, camera]);
 
   return (
-    <div className="relative w-full h-full flex-1 min-h-[500px] bg-[#0d0812] overflow-hidden flex flex-col justify-between select-none">
+    <div className={`relative w-full h-full flex-1 ${isMinimized ? "min-h-0" : "min-h-[500px]"} bg-[#0d0812] overflow-hidden flex flex-col justify-between select-none`}>
       <audio
         ref={remoteAudioCallback}
         autoPlay
@@ -283,9 +317,9 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
           className="absolute inset-0 w-full h-full object-cover z-0"
         />
       ) : (
-        <div className="absolute inset-0 bg-gradient-to-b from-[#261226] via-[#1a0c1b] to-[#0d0812] flex flex-col items-center justify-center z-0 p-6">
-          <div className="relative p-3 rounded-full border-2 border-[#c0396b] animate-pulse">
-            <div className={`${isExpanded ? "w-44 h-44 sm:w-52 sm:h-52 text-5xl" : "w-32 h-32 sm:w-36 sm:h-36 text-4xl"} rounded-full overflow-hidden border-2 border-[#e91671] shadow-2xl bg-gradient-to-br from-[#be123c] to-[#7c3aed] flex items-center justify-center text-white font-bold transition-all duration-300`}>
+        <div className="absolute inset-0 bg-gradient-to-b from-[#261226] via-[#1a0c1b] to-[#0d0812] flex flex-col items-center justify-center z-0 p-4">
+          <div className="relative p-2.5 rounded-full border-2 border-[#c0396b] animate-pulse">
+            <div className={`${isMinimized ? "w-16 h-16 text-xl" : isExpanded ? "w-44 h-44 sm:w-52 sm:h-52 text-5xl" : "w-32 h-32 sm:w-36 sm:h-36 text-4xl"} rounded-full overflow-hidden border-2 border-[#e91671] shadow-2xl bg-gradient-to-br from-[#be123c] to-[#7c3aed] flex items-center justify-center text-white font-bold transition-all duration-300`}>
               {avatarUrl && avatarUrl !== "/assets/logo.jpg" ? (
                 <img
                   src={avatarUrl}
@@ -300,7 +334,7 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
               )}
             </div>
           </div>
-          {isVideo && (
+          {isVideo && !isMinimized && (
             <span className="mt-4 px-3.5 py-1 rounded-full bg-black/60 border border-white/10 text-white/70 text-xs font-medium backdrop-blur-md">
               📷 {peerName}'s camera is off
             </span>
@@ -308,40 +342,63 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
         </div>
       )}
 
-      {/* ── Top Bar: Encryption label, Peer Name, Timer, Mute Badges ── */}
-      <div className="relative z-10 w-full pt-4 pb-2 px-6 flex flex-col items-center bg-gradient-to-b from-black/70 to-transparent">
-        <span className="text-white/60 text-[11px] tracking-wider uppercase font-semibold flex items-center gap-1.5">
-          🔒 End-to-End Encrypted
-        </span>
-        <div className="flex items-center gap-2 mt-1">
-          <h3 className="text-white text-xl sm:text-2xl font-bold tracking-tight mb-0">
-            {peerName}
-          </h3>
-          {remoteMuted && (
-            <span className="px-2.5 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-400 text-[11px] font-semibold flex items-center gap-1">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-              Muted
+      {/* ── Top Bar: Branding, Encryption label, Peer Name, Timer ── */}
+      {isMinimized ? (
+        <div className="relative z-10 w-full pt-10 px-3 pb-1 flex items-center justify-between bg-gradient-to-b from-black/85 via-black/50 to-transparent">
+          <div className="flex items-center gap-1.5 min-w-0 pr-2">
+            <span className="text-white text-xs font-bold truncate max-w-[140px] drop-shadow">
+              {peerName}
             </span>
-          )}
+            {remoteMuted && (
+              <span className="text-red-400 text-[10px] font-semibold bg-red-500/20 px-1 py-0.5 rounded">
+                Muted
+              </span>
+            )}
+          </div>
+          <span className="text-[#a8e4b0] text-[11px] font-mono font-semibold bg-black/50 px-2 py-0.5 rounded-full border border-white/10 shrink-0">
+            {formatTime(callSeconds)}
+          </span>
         </div>
-        <span className="text-[#a8e4b0] text-sm font-medium tracking-wide mt-0.5">
-          {formatTime(callSeconds)}
-        </span>
+      ) : (
+        <div className="relative z-10 w-full pt-12 pb-2 px-6 flex flex-col items-center bg-gradient-to-b from-black/70 to-transparent">
+          {/* Juicy Match Branding & Encryption pill */}
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/40 border border-white/15 backdrop-blur-md mb-1.5 shadow">
+            <img src="/assets/logo.jpg" alt="Juicy Match" className="w-3.5 h-3.5 rounded-full object-cover border border-[#e91671]/60" />
+            <span className="text-[11px] text-white/90 font-bold uppercase tracking-wider">Juicy Match</span>
+            <span className="text-white/30 text-[9px]">·</span>
+            <span className="text-[10px] text-white/60 tracking-wider uppercase font-semibold">🔒 Encrypted</span>
+          </div>
 
-        {/* Live Feature Credits Burn Rate & Low Credit Warning */}
-        <div className="mt-2 w-full flex justify-center">
-          <CallCreditBar
-            isCaller={isCaller}
-            isVideo={isVideo}
-            callSeconds={callSeconds}
-            onDepleted={() => performAction("end")}
-            onOpenTopup={() => setShowInCallTopup(true)}
-          />
+          <div className="flex items-center gap-2 mt-0.5">
+            <h3 className="text-white text-xl sm:text-2xl font-bold tracking-tight mb-0">
+              {peerName}
+            </h3>
+            {remoteMuted && (
+              <span className="px-2.5 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-400 text-[11px] font-semibold flex items-center gap-1">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                Muted
+              </span>
+            )}
+          </div>
+          <span className="text-[#a8e4b0] text-sm font-medium tracking-wide mt-0.5">
+            {formatTime(callSeconds)}
+          </span>
+
+          {/* Live Feature Credits Burn Rate & Low Credit Warning */}
+          <div className="mt-2 w-full flex justify-center">
+            <CallCreditBar
+              isCaller={isCaller}
+              isVideo={isVideo}
+              callSeconds={callSeconds}
+              onDepleted={() => performAction("end")}
+              onOpenTopup={() => setShowInCallTopup(true)}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* ── PiP: Local Camera Preview OR Initial Avatar when Camera is Off (WhatsApp Style) ── */}
-      {isVideo && (
+      {/* ── PiP: Local Camera Preview OR Initial Avatar when Camera is Off (Hidden when Minimized) ── */}
+      {isVideo && !isMinimized && (
         <div
           className={`absolute ${
             isExpanded
@@ -391,52 +448,49 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
       )}
 
       {/* ── Bottom Controls Bar ── */}
-      <div className="relative z-10 w-full px-6 py-6 bg-gradient-to-t from-black/90 via-black/70 to-transparent flex flex-col items-center gap-3">
-        {/* Local Mute Notice Pill */}
-        {!mic && (
-          <div className="px-3.5 py-1 rounded-full bg-red-600/80 border border-red-400/30 text-white text-xs font-semibold backdrop-blur-md flex items-center gap-1.5 shadow-lg animate-pulse">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-            You are muted
-          </div>
-        )}
+      {isMinimized ? (
+        <div className="relative z-10 w-full px-3 py-2 bg-gradient-to-t from-black/95 via-black/70 to-transparent flex items-center justify-center gap-3">
+          {/* Local Mute Notice */}
+          {!mic && (
+            <span className="px-2 py-0.5 rounded-full bg-red-600/80 text-white text-[10px] font-semibold flex items-center gap-1">
+              Muted
+            </span>
+          )}
 
-        <div className="flex items-center justify-center gap-5">
           {/* Mic Toggle */}
           <button
             type="button"
             onClick={toggleMic}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border cursor-pointer ${
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border cursor-pointer ${
               mic
                 ? "bg-white/15 hover:bg-white/25 border-transparent text-white"
-                : "bg-red-500/25 hover:bg-red-500/35 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.35)]"
+                : "bg-red-500/30 hover:bg-red-500/40 border-red-500/60 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.4)]"
             }`}
             title={mic ? "Mute Microphone" : "Unmute Microphone"}
-            aria-label={mic ? "Mute Microphone" : "Unmute Microphone"}
           >
             {mic ? (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
             ) : (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
             )}
           </button>
 
-          {/* Camera Toggle (Video Call Only) */}
+          {/* Camera Toggle (Video Only) */}
           {isVideo && (
             <button
               type="button"
               onClick={toggleCamera}
-              className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border cursor-pointer ${
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border cursor-pointer ${
                 camera
                   ? "bg-white/15 hover:bg-white/25 border-transparent text-white"
-                  : "bg-red-500/25 hover:bg-red-500/35 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.35)]"
+                  : "bg-red-500/30 hover:bg-red-500/40 border-red-500/60 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.4)]"
               }`}
               title={camera ? "Turn off Camera" : "Turn on Camera"}
-              aria-label={camera ? "Turn off Camera" : "Turn on Camera"}
             >
               {camera ? (
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
               ) : (
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
               )}
             </button>
           )}
@@ -445,14 +499,76 @@ export default function ActiveCall({ callState, sizeMode = "compact", onClose })
           <button
             type="button"
             onClick={() => performAction("end")}
-            className="w-16 h-16 rounded-full bg-[#ff5656] hover:bg-[#ff3b3b] text-white flex items-center justify-center shadow-[0_6px_25px_rgba(255,86,86,0.5)] hover:scale-105 active:scale-95 transition-all cursor-pointer border-none"
+            className="w-10 h-10 rounded-full bg-[#ff5656] hover:bg-[#ff3b3b] text-white flex items-center justify-center shadow-[0_4px_15px_rgba(255,86,86,0.5)] transition-all cursor-pointer border-none"
             title="End Call"
-            aria-label="End Call"
           >
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
           </button>
         </div>
-      </div>
+      ) : (
+        <div className="relative z-10 w-full px-6 py-6 bg-gradient-to-t from-black/90 via-black/70 to-transparent flex flex-col items-center gap-3">
+          {/* Local Mute Notice Pill */}
+          {!mic && (
+            <div className="px-3.5 py-1 rounded-full bg-red-600/80 border border-red-400/30 text-white text-xs font-semibold backdrop-blur-md flex items-center gap-1.5 shadow-lg animate-pulse">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              You are muted
+            </div>
+          )}
+
+          <div className="flex items-center justify-center gap-5">
+            {/* Mic Toggle */}
+            <button
+              type="button"
+              onClick={toggleMic}
+              className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border cursor-pointer ${
+                mic
+                  ? "bg-white/15 hover:bg-white/25 border-transparent text-white"
+                  : "bg-red-500/25 hover:bg-red-500/35 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.35)]"
+              }`}
+              title={mic ? "Mute Microphone" : "Unmute Microphone"}
+              aria-label={mic ? "Mute Microphone" : "Unmute Microphone"}
+            >
+              {mic ? (
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              ) : (
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              )}
+            </button>
+
+            {/* Camera Toggle (Video Call Only) */}
+            {isVideo && (
+              <button
+                type="button"
+                onClick={toggleCamera}
+                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border cursor-pointer ${
+                  camera
+                    ? "bg-white/15 hover:bg-white/25 border-transparent text-white"
+                    : "bg-red-500/25 hover:bg-red-500/35 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.35)]"
+                }`}
+                title={camera ? "Turn off Camera" : "Turn on Camera"}
+                aria-label={camera ? "Turn off Camera" : "Turn on Camera"}
+              >
+                {camera ? (
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                ) : (
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                )}
+              </button>
+            )}
+
+            {/* End Call Button */}
+            <button
+              type="button"
+              onClick={() => performAction("end")}
+              className="w-16 h-16 rounded-full bg-[#ff5656] hover:bg-[#ff3b3b] text-white flex items-center justify-center shadow-[0_6px_25px_rgba(255,86,86,0.5)] hover:scale-105 active:scale-95 transition-all cursor-pointer border-none"
+              title="End Call"
+              aria-label="End Call"
+            >
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* In-Call Quick Top-up Modal */}
       {showInCallTopup && (

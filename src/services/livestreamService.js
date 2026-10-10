@@ -166,15 +166,26 @@ export const livestreamService = {
     if (!streamId) return null;
     try {
       const ticketRes = await livestreamService.getEventsTicket(streamId);
-      const ticket = ticketRes?.ticket;
+      const ticket = ticketRes?.ticket || ticketRes?.data?.ticket;
       if (!ticket) {
         onError?.(new Error("No SSE ticket returned"));
         return null;
       }
 
+      const { token } = getStoredTokens();
+      const cleanToken = token ? token.replace(/^Bearer\s+/i, "") : "";
+
       const sseBase = RAW_BASE_URL ? `${RAW_BASE_URL}/v1` : "/v1";
-      const sseUrl = `${sseBase}/livestreams/${streamId}/events?ticket=${encodeURIComponent(ticket)}`;
-      const es = new EventSource(sseUrl);
+      const sseUrl = `${sseBase}/livestreams/${streamId}/events?ticket=${encodeURIComponent(ticket)}${
+        cleanToken ? `&token=${encodeURIComponent(cleanToken)}&accessToken=${encodeURIComponent(cleanToken)}` : ""
+      }`;
+
+      let es = null;
+      try {
+        es = new EventSource(sseUrl, { withCredentials: true });
+      } catch {
+        es = new EventSource(sseUrl);
+      }
 
       es.onmessage = (e) => {
         try {
@@ -211,6 +222,10 @@ export const livestreamService = {
       });
 
       es.onerror = (err) => {
+        // Prevent browser EventSource from infinite 401 retry loop
+        try {
+          es.close();
+        } catch {}
         onError?.(err);
       };
 

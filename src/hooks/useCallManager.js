@@ -322,7 +322,7 @@ export function useCallManager({ state, showToast }) {
 
       const isVideo = actualMedium === "video";
       const requiredCredits = isVideo ? 15 : 5;
-      const currentCredits = state.wallet?.featureCredits ?? 100;
+      const currentCredits = state.wallet?.featureCredits !== undefined ? Number(state.wallet.featureCredits) : 0;
 
       // 1. Pre-authorization check (>= 5 FC audio, >= 15 FC video)
       if (currentCredits < requiredCredits) {

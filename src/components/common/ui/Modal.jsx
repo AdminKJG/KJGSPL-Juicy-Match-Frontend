@@ -21,7 +21,7 @@ export default function Modal() {
         aria-labelledby="dialog-title"
       >
         <div className="flex items-center justify-between pb-3.5 border-b border-white/10">
-          <h2 id="dialog-title" className="text-lg sm:text-xl font-serif font-bold text-white tracking-tight m-0">
+          <h2 id="dialog-title" className="text-base sm:text-lg font-extrabold text-white tracking-tight m-0">
             {modalContent.title}
           </h2>
           <button

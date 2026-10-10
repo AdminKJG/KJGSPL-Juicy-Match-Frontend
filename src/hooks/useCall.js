@@ -157,8 +157,10 @@ export function useCall(initialCall) {
 
       if (updated && updated.id) {
         setCall(updated);
-        if (updated.fc_charged !== undefined || updated.billed_minutes !== undefined) {
-          setCallReceipt(updated);
+        const charged = updated.fc_charged ?? updated.fcCharged ?? updated.chargedCredits ?? updated.credits_charged;
+        const mins = updated.billed_minutes ?? updated.billedMinutes;
+        if (charged !== undefined || mins !== undefined) {
+          setCallReceipt({ ...updated, fc_charged: charged, billed_minutes: mins });
         }
       } else {
         const nextState = action === "accept" ? "accepted" : action === "decline" ? "declined" : "ended";
@@ -247,8 +249,10 @@ export function useCall(initialCall) {
           ...prev,
           state: "ended",
         }));
-        if (data.fc_charged !== undefined || data.billed_minutes !== undefined) {
-          setCallReceipt(data);
+        const charged = data.fc_charged ?? data.fcCharged ?? data.chargedCredits ?? data.credits_charged;
+        const mins = data.billed_minutes ?? data.billedMinutes;
+        if (charged !== undefined || mins !== undefined) {
+          setCallReceipt({ ...data, fc_charged: charged, billed_minutes: mins });
         }
         if (durationRef.current) {
           clearInterval(durationRef.current);

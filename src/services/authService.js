@@ -99,7 +99,7 @@ export const authService = {
   refreshToken: async (refreshToken) => {
     const data = await request("/auth/refresh", {
       method: "POST",
-      body: { refreshToken },
+      body: { refreshToken, refresh_token: refreshToken },
       auth: false,
     });
     const token = data.token || data.accessToken || data.data?.token;
@@ -131,5 +131,36 @@ export const authService = {
       body: { currentPassword, newPassword },
       auth: true,
     });
+  },
+
+  // 1.11 Forgot Password / Request Password Reset
+  forgotPassword: async (email) => {
+    try {
+      return await request("/auth/forgot-password", {
+        method: "POST",
+        body: { email: String(email).trim().toLowerCase() },
+        auth: false,
+      });
+    } catch (err) {
+      if (err.status === 404) {
+        try {
+          return await request("/auth/password/reset-request", {
+            method: "POST",
+            body: { email: String(email).trim().toLowerCase() },
+            auth: false,
+          });
+        } catch (innerErr) {
+          if (innerErr.status === 404) {
+            return await request("/auth/password/reset", {
+              method: "POST",
+              body: { email: String(email).trim().toLowerCase() },
+              auth: false,
+            });
+          }
+          throw innerErr;
+        }
+      }
+      throw err;
+    }
   },
 };

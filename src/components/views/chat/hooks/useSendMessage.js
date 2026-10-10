@@ -78,6 +78,8 @@ export function useSendMessage({
     const newMsg = {
       id: clientId,
       clientId,
+      connectionId: activeConn.id,
+      connection_id: activeConn.id,
       sender: myId,
       isMine: true,
       mine: true,
@@ -245,6 +247,8 @@ export function useSendMessage({
             ...res,
             clientId,
             client_id: clientId,
+            connectionId: activeConn.id,
+            connection_id: activeConn.id,
             mediaUrl: serverMediaUrl || newMsg.mediaUrl,
             fileName: res.fileName || newMsg.fileName,
             fileSize: res.fileSize || newMsg.fileSize,

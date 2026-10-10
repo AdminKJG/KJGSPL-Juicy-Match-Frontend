@@ -1,7 +1,7 @@
 import React from "react";
-import { money } from "../../../utils/formatters";
 import { useApp } from "../../../context/AppContext";
 import CheckoutModal from "./CheckoutModal";
+import { formatPrice, resolveCreditPackPrice } from "../../../utils/pricingUtils";
 
 /**
  * CreditPacksSection
@@ -12,53 +12,105 @@ import CheckoutModal from "./CheckoutModal";
 export default function CreditPacksSection({ selectedCurrency = "USD", onReload, availableQuotes = [] }) {
   const { openModal, closeModal } = useApp();
 
-  const formatPrice = (price, currency = selectedCurrency) => {
-    if (price == null) return "—";
-    if (typeof price === "number") {
-      if (price < 100 && price > 0 && !Number.isInteger(price)) {
-        return money(price, currency, 0);
-      }
-      if (price >= 100) {
-        return money(price, currency);
-      }
-      return money(price, currency, 0);
-    }
-    return String(price);
-  };
-
   const rawQuotes = Array.isArray(availableQuotes) ? availableQuotes : [];
 
-  const fcPacks = rawQuotes
-    .filter(
-      (q) =>
-        (q.kind === "topup" || q.type === "topup" || !q.plan) &&
-        (q.sku?.includes("feature") || q.sku?.includes(".fc.") || q.name?.toLowerCase().includes("feature"))
-    )
-    .map((s) => ({
-      sku: s.sku,
-      credits: s.amount ?? s.credits ?? 0,
-      price: s.price,
-      currency: s.currency || selectedCurrency,
-      label: s.name || `${s.amount ?? s.credits ?? 0} Feature Credits`,
-      desc: s.desc || `${Math.floor((s.amount ?? s.credits ?? 0) / 5)} voice mins or ${Math.floor((s.amount ?? s.credits ?? 0) / 15)} video mins`,
-      badge: s.badge || null,
-    }));
+  const defaultFcQuotes = [
+    {
+      sku: "credits.feature.500",
+      amount: 500,
+      name: "500 Feature Credits",
+      desc: "100 voice mins or 33 video mins",
+      badge: null,
+    },
+    {
+      sku: "credits.feature.1000",
+      amount: 1000,
+      name: "1,000 Feature Credits",
+      desc: "200 voice mins or 66 video mins",
+      badge: "Popular",
+    },
+    {
+      sku: "credits.feature.2500",
+      amount: 2500,
+      name: "2,500 Feature Credits",
+      desc: "500 voice mins or 166 video mins",
+      badge: "Best Value",
+    },
+  ];
 
-  const aiPacks = rawQuotes
-    .filter(
-      (q) =>
-        (q.kind === "topup" || q.type === "topup" || !q.plan) &&
-        (q.sku?.includes(".ai.") || q.sku?.includes("credits.ai") || q.name?.toLowerCase().includes("ai"))
-    )
-    .map((s) => ({
-      sku: s.sku,
-      credits: s.amount ?? s.credits ?? 0,
-      price: s.price,
-      currency: s.currency || selectedCurrency,
-      label: s.name || `${s.amount ?? s.credits ?? 0} AI Credits`,
-      desc: s.desc || `${s.amount ?? s.credits ?? 0} wingman replies or bio advice`,
+  const defaultAiQuotes = [
+    {
+      sku: "credits.ai.50",
+      amount: 50,
+      name: "50 AI Credits",
+      desc: "50 wingman replies or 25 bio advice",
+      badge: null,
+    },
+    {
+      sku: "credits.ai.150",
+      amount: 150,
+      name: "150 AI Credits",
+      desc: "150 wingman replies or 75 bio advice",
+      badge: "Popular",
+    },
+    {
+      sku: "credits.ai.400",
+      amount: 400,
+      name: "400 AI Credits",
+      desc: "Comprehensive chemistry & AI coaching",
+      badge: "Best Value",
+    },
+  ];
+
+  const matchedFcQuotes = rawQuotes.filter(
+    (q) =>
+      (q.kind === "topup" || q.type === "topup" || !q.plan) &&
+      (q.sku?.includes("feature") || q.sku?.includes(".fc.") || q.name?.toLowerCase().includes("feature"))
+  );
+  const activeFcSources = matchedFcQuotes.length > 0 ? matchedFcQuotes : defaultFcQuotes;
+
+  const fcPacks = activeFcSources.map((s) => {
+    const sku = s.sku;
+    const credits = s.amount ?? s.credits ?? 0;
+    const price = resolveCreditPackPrice(sku, selectedCurrency, s);
+    return {
+      sku,
+      credits,
+      price,
+      formattedPrice: s.formattedPrice || null,
+      amount: s.amount,
+      rawQuote: s,
+      currency: selectedCurrency,
+      label: s.name || `${credits} Feature Credits`,
+      desc: s.desc || `${Math.floor(credits / 5)} voice mins or ${Math.floor(credits / 15)} video mins`,
       badge: s.badge || null,
-    }));
+    };
+  });
+
+  const matchedAiQuotes = rawQuotes.filter(
+    (q) =>
+      (q.kind === "topup" || q.type === "topup" || !q.plan) &&
+      (q.sku?.includes(".ai.") || q.sku?.includes("credits.ai") || q.name?.toLowerCase().includes("ai"))
+  );
+  const activeAiSources = matchedAiQuotes.length > 0 ? matchedAiQuotes : defaultAiQuotes;
+
+  const aiPacks = activeAiSources.map((s) => {
+    const sku = s.sku;
+    const credits = s.amount ?? s.credits ?? 0;
+    const price = resolveCreditPackPrice(sku, selectedCurrency, s);
+    return {
+      sku,
+      credits,
+      price,
+      formattedPrice: s.formattedPrice || null,
+      amount: s.amount,
+      rawQuote: s,
+      currency: selectedCurrency,
+      label: s.name || `${credits} AI Credits`,
+      desc: s.desc || `${credits} wingman replies or bio advice`,
+      badge: s.badge || null,
+    };
+  });
 
   const handleBuyPack = (pack, isAi = false) => {
     openModal(
@@ -138,7 +190,7 @@ export default function CreditPacksSection({ selectedCurrency = "USD", onReload,
                   <div>
                     <span className="text-[10px] text-white/50 block font-medium">Price</span>
                     <span className="font-extrabold text-white text-base">
-                      {formatPrice(pack.price, pack.currency)}
+                      {pack.formattedPrice || formatPrice(pack.price, pack.currency, pack.rawQuote)}
                     </span>
                   </div>
 
@@ -199,7 +251,7 @@ export default function CreditPacksSection({ selectedCurrency = "USD", onReload,
                   <div>
                     <span className="text-[10px] text-white/50 block font-medium">Price</span>
                     <span className="font-extrabold text-white text-base">
-                      {formatPrice(pack.price, pack.currency)}
+                      {pack.formattedPrice || formatPrice(pack.price, pack.currency, pack.rawQuote)}
                     </span>
                   </div>
 

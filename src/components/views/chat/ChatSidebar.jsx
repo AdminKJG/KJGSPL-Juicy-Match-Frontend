@@ -10,6 +10,7 @@ export default function ChatSidebar({
   onSelectConn,
   onSelectConnection,
   loading,
+  loadingConns,
   searchQuery,
   setSearchQuery,
   activeTab,
@@ -18,6 +19,7 @@ export default function ChatSidebar({
   onNavigateDiscover,
   isMobileHidden,
 }) {
+  const isLoading = Boolean(loading || loadingConns);
   const handleSelect = (id) => {
     if (typeof onSelectConn === "function") onSelectConn(id);
     if (typeof onSelectConnection === "function") onSelectConnection(id);
@@ -188,9 +190,9 @@ export default function ChatSidebar({
 
       {/* Conversation List */}
       <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="p-8 text-center">
-            <Loader text="Loading chats…" size="small" />
+        {isLoading ? (
+          <div className="p-8 text-center flex flex-col items-center justify-center">
+            <Loader text="Loading conversations…" size="small" />
           </div>
         ) : filteredConnections.length > 0 ? (
           <div className="py-1.5">

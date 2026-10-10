@@ -125,21 +125,26 @@ export function useAppRouting({ authenticated }) {
       ) {
         toast.error(message, defaultOptions);
       } else if (
-        msgLower.includes("success") ||
-        msgLower.includes("welcome") ||
-        msgLower.includes("verified") ||
-        msgLower.includes("saved") ||
-        msgStr.includes("✨") ||
-        msgStr.includes("🔒") ||
-        msgStr.includes("📸")
-      ) {
-        toast.success(message, defaultOptions);
-      } else if (
         msgLower.includes("warning") ||
         msgLower.includes("caution") ||
         msgLower.includes("expired")
       ) {
         toast.warn(message, defaultOptions);
+      } else if (
+        msgLower.includes("security") ||
+        msgLower.includes("login detected") ||
+        msgStr.includes("🔒")
+      ) {
+        toast.info(message, defaultOptions);
+      } else if (
+        msgLower.includes("success") ||
+        msgLower.includes("welcome") ||
+        msgLower.includes("verified") ||
+        msgLower.includes("saved") ||
+        msgStr.includes("✨") ||
+        msgStr.includes("📸")
+      ) {
+        toast.success(message, defaultOptions);
       } else {
         toast.info(message, defaultOptions);
       }

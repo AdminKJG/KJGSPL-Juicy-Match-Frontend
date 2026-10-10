@@ -38,6 +38,7 @@ export default function App() {
     showToast,
     activeLiveStreamModal,
     closeLiveStream,
+    refreshLiveStreams,
   } = useApp();
 
   const [page, id] = activeRoute.split("/");
@@ -131,6 +132,10 @@ export default function App() {
           stream={activeLiveStreamModal.stream}
           role={activeLiveStreamModal.role}
           onClose={closeLiveStream}
+          onStreamEnded={(endedId) => {
+            closeLiveStream();
+            refreshLiveStreams?.();
+          }}
           showToast={showToast}
         />
       )}

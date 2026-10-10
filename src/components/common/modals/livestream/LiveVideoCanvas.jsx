@@ -19,6 +19,9 @@ export default function LiveVideoCanvas({
   localVideoRef,
   remoteVideoRef,
   remoteAudioRef,
+  remoteTrack,
+  audioBlocked = false,
+  onUnlockAudio,
   onReturnToExplore,
 }) {
   const [videoPlaying, setVideoPlaying] = useState(false);
@@ -41,6 +44,23 @@ export default function LiveVideoCanvas({
     [localStream, localVideoRef]
   );
 
+  // Callback ref ensuring remote video element reliably attaches track
+  const setRemoteVideoCallback = useCallback(
+    (el) => {
+      if (remoteVideoRef) {
+        remoteVideoRef.current = el;
+      }
+      if (el && remoteTrack) {
+        try {
+          remoteTrack.attach(el);
+          el.play().catch(() => {});
+          setVideoPlaying(true);
+        } catch {}
+      }
+    },
+    [remoteTrack, remoteVideoRef]
+  );
+
   useEffect(() => {
     if (localVideoRef?.current && localStream) {
       if (localVideoRef.current.srcObject !== localStream) {
@@ -50,15 +70,42 @@ export default function LiveVideoCanvas({
     }
   }, [localStream, localVideoRef]);
 
+  useEffect(() => {
+    if (remoteTrack) {
+      setVideoPlaying(true);
+    }
+    if (remoteVideoRef?.current && remoteTrack) {
+      try {
+        remoteTrack.attach(remoteVideoRef.current);
+        remoteVideoRef.current.play().catch(() => {});
+        setVideoPlaying(true);
+      } catch {}
+    }
+  }, [remoteTrack, remoteVideoRef]);
+
+  const hasActiveVideo = Boolean(remoteTrack || videoPlaying);
+
   return (
     <div className="relative flex-1 w-full h-full min-h-[300px] bg-black overflow-hidden flex items-center justify-center select-none">
-      {/* Hidden audio element for remote audio stream */}
-      <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: "none" }} />
+      {/* Remote audio stream player (using w-px h-px opacity-0 so browser never suspends playback) */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="absolute opacity-0 pointer-events-none w-px h-px" />
+
+      {/* Browser Autoplay Blocked - Tap to Unmute Banner */}
+      {!isHost && audioBlocked && (
+        <button
+          type="button"
+          onClick={onUnlockAudio}
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-full bg-gradient-to-r from-pink to-purple-600 hover:from-pink/90 hover:to-purple-500 text-white text-xs font-bold shadow-[0_4px_20px_rgba(233,22,113,0.5)] flex items-center gap-2 animate-bounce cursor-pointer"
+        >
+          <span>🔊</span>
+          <span>Tap to Unmute Audio</span>
+        </button>
+      )}
 
       {/* ── Video Feeds ── */}
       {isHost ? (
         /* Host Local Camera Stream */
-        <div className="w-full h-full relative flex items-center justify-center bg-zinc-950">
+        <div className="w-full h-full relative flex items-center justify-center bg-gradient-to-b from-[#1b0a24] via-[#100615] to-[#08020a]">
           <video
             ref={setLocalVideoCallback}
             autoPlay
@@ -66,11 +113,13 @@ export default function LiveVideoCanvas({
             playsInline
             onLoadedMetadata={(e) => e.target.play().catch(() => {})}
             className={`w-full h-full object-cover transform -scale-x-100 transition-opacity duration-300 ${
-              isVideoOff ? "opacity-0" : "opacity-100"
+              isVideoOff || !localStream ? "opacity-0" : "opacity-100"
             }`}
           />
-          {isVideoOff && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-[#1f1027] to-[#0a050d] gap-4">
+
+          {/* Host Camera Starting / Paused */}
+          {(!localStream || isVideoOff) && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-[#1f1027]/90 via-[#100615]/90 to-[#0a050d] gap-4 backdrop-blur-md">
               <div className="relative">
                 <div
                   className={`w-28 h-28 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-2xl border-4 border-pink/60 portrait ${portraitClass(
@@ -89,31 +138,47 @@ export default function LiveVideoCanvas({
                 </div>
                 <div className="absolute inset-0 rounded-full border-2 border-pink/40 animate-ping opacity-30" />
               </div>
-              <div className="flex items-center gap-2 text-white/80 text-sm font-medium bg-black/40 px-3 py-1.5 rounded-full border border-white/10">
-                <Icon name="video" className="w-4 h-4 text-pink" />
-                <span>Camera is Paused</span>
+              <div className="flex items-center gap-2 text-white/90 text-sm font-semibold bg-black/60 px-4 py-2 rounded-full border border-pink/30 shadow-lg">
+                <Icon name="video" className="w-4 h-4 text-pink animate-pulse" />
+                <span>{isVideoOff ? "Camera is Paused" : "Starting camera & broadcast studio…"}</span>
               </div>
             </div>
           )}
         </div>
       ) : (
         /* Viewer Remote Stream */
-        <div className="w-full h-full relative flex items-center justify-center bg-zinc-950">
+        <div className="w-full h-full relative flex items-center justify-center bg-gradient-to-b from-[#1b0a24] via-[#100615] to-[#08020a]">
+          {/* Ambient blurred backdrop of host */}
+          {(stream?.hostPhoto || stream?.photo) && (
+            <div
+              className="absolute inset-0 bg-cover bg-center filter blur-3xl opacity-20 scale-125 pointer-events-none"
+              style={{ backgroundImage: `url(${stream.hostPhoto || stream.photo})` }}
+            />
+          )}
+
           <video
-            ref={remoteVideoRef}
+            ref={setRemoteVideoCallback}
             autoPlay
             playsInline
+            muted
             onPlaying={() => setVideoPlaying(true)}
-            onLoadedMetadata={(e) => e.target.play().catch(() => {})}
-            className="w-full h-full object-cover"
+            onLoadedData={() => setVideoPlaying(true)}
+            onCanPlay={() => setVideoPlaying(true)}
+            onLoadedMetadata={(e) => {
+              setVideoPlaying(true);
+              e.target.play().catch(() => {});
+            }}
+            className={`w-full h-full object-cover transition-opacity duration-300 ${
+              hasActiveVideo ? "opacity-100" : "opacity-0"
+            }`}
           />
 
           {/* Buffer / Connecting State */}
-          {!isConnected && !videoPlaying && !streamEndedBanner && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-[#1c0f24] to-[#0b050f] gap-4 z-10">
+          {!hasActiveVideo && !streamEndedBanner && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0d0512]/95 gap-3.5 z-10 select-none px-6 text-center">
               <div className="relative">
                 <div
-                  className={`w-24 h-24 rounded-full flex items-center justify-center text-3xl font-bold text-white shadow-xl border-2 border-pink/50 portrait ${portraitClass(
+                  className={`w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white border border-pink/50 portrait ${portraitClass(
                     portraitIdx
                   )}`}
                 >
@@ -127,11 +192,14 @@ export default function LiveVideoCanvas({
                     <span>{hostName[0]?.toUpperCase() || "H"}</span>
                   )}
                 </div>
-                <div className="absolute inset-0 rounded-full border-4 border-pink/20 border-t-pink animate-spin" />
+                <div className="absolute -inset-1 rounded-full border border-pink/30 border-t-pink animate-spin" />
               </div>
-              <div className="text-center">
-                <h4 className="text-white font-bold text-base mb-1">{hostName}'s Live Stream</h4>
-                <p className="text-xs text-white/70 animate-pulse">{connectingStatus}</p>
+              <div className="max-w-xs">
+                <h4 className="text-white font-semibold text-sm mb-1">{hostName}'s Live Stream</h4>
+                <p className="text-xs text-white/60 mb-1">{connectingStatus}</p>
+                <p className="text-[11px] text-white/40">
+                  You can chat and send reactions live below while waiting for video feed.
+                </p>
               </div>
             </div>
           )}

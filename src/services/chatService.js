@@ -13,14 +13,55 @@ export const getLocalChatStore = () => {
   }
 };
 
+// Sanitize localStorage chat store to purge cross-contaminated messages
+export const sanitizeLocalChatStore = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_CHAT_KEY);
+    if (!raw) return;
+    const store = JSON.parse(raw);
+    let changed = false;
+    Object.keys(store).forEach((k) => {
+      if (Array.isArray(store[k])) {
+        const filtered = store[k].filter((m) => {
+          if (!m) return false;
+          const mConn = m.connectionId || m.connection_id || m.conversationId;
+          // Purge messages that were saved under a different connection's ID
+          if (mConn && !k.includes("::") && String(mConn).toLowerCase() !== String(k).toLowerCase()) {
+            changed = true;
+            return false;
+          }
+          return true;
+        });
+        if (filtered.length !== store[k].length) {
+          store[k] = filtered;
+          changed = true;
+        }
+      }
+    });
+    if (changed) {
+      localStorage.setItem(STORAGE_CHAT_KEY, JSON.stringify(store));
+    }
+  } catch {}
+};
+
+// Immediately sanitize on module load
+sanitizeLocalChatStore();
+
 export const saveLocalChatMessage = (keys, message) => {
   try {
+    if (!message) return;
     const store = getLocalChatStore();
     const keyList = Array.isArray(keys) ? keys : [keys];
+    const msgConnId = message.connectionId || message.connection_id || message.conversationId;
+
     keyList.filter(Boolean).forEach((k) => {
+      // Guard: If message has an explicit connectionId, never write it under a DIFFERENT connectionId key
+      if (msgConnId && !k.includes("::") && String(msgConnId).toLowerCase() !== String(k).toLowerCase()) {
+        return;
+      }
       const existing = Array.isArray(store[k]) ? store[k] : [];
       const matchIndex = existing.findIndex(
-        (m) => m.id === message.id || (message.clientId && m.clientId === message.clientId)
+        (m) => (message.id && m.id === message.id) || (message.clientId && m.clientId === message.clientId)
       );
       if (matchIndex >= 0) {
         existing[matchIndex] = { ...existing[matchIndex], ...message };
@@ -117,7 +158,15 @@ export const chatService = {
     }
 
     const store = getLocalChatStore();
-    const connMsgs = Array.isArray(store[cleanId]) ? store[cleanId] : [];
+    const rawConnMsgs = Array.isArray(store[cleanId]) ? store[cleanId] : [];
+    const connMsgs = rawConnMsgs.filter((lm) => {
+      if (!lm) return false;
+      const lmConnId = lm.connectionId || lm.connection_id || lm.conversationId;
+      if (lmConnId && String(lmConnId).toLowerCase() !== String(cleanId).toLowerCase()) {
+        return false;
+      }
+      return true;
+    });
 
     const localMap = new Map();
     connMsgs.forEach((lm) => {
@@ -212,6 +261,8 @@ export const chatService = {
       clientId,
       sender: serverRes?.sender || myId,
       body: serverRes?.body || body,
+      connectionId: cleanId,
+      connection_id: cleanId,
       replyToId,
       createdAt: serverRes?.createdAt || serverRes?.created_at || new Date().toISOString(),
       read: false,
@@ -278,6 +329,8 @@ export const chatService = {
       id: serverRes?.id || clientId,
       clientId,
       sender: serverRes?.sender || myId,
+      connectionId,
+      connection_id: connectionId,
       kind: "voice",
       body: serverRes?.body || wireBody,
       mediaId: mediaId || serverRes?.mediaId || null,

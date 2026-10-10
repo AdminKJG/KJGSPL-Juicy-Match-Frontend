@@ -7,6 +7,7 @@ import HostModerationDrawer from "./HostModerationDrawer";
 import ReportStreamModal from "./ReportStreamModal";
 import { livestreamService, endStreamBeacon } from "../../../../services/livestreamService";
 import { socketService } from "../../../../services/socketService";
+import { useApp } from "../../../../context/AppContext";
 
 // ── LiveKit Dynamic WebRTC Loader ───────────────────────────────────────────
 let LiveKitRoom = null;
@@ -34,7 +35,33 @@ export default function LiveStreamStudioModal({
   onStreamEnded,
   showToast,
 }) {
-  const isHost = role === "host";
+  const { state } = useApp?.() || {};
+  const myId = state?.me?.id || state?.me?.account?.id || state?.me?.accountId;
+  const myName = (
+    state?.me?.profile?.pseudonym ||
+    state?.me?.account?.pseudonym ||
+    state?.me?.name ||
+    state?.me?.pseudonym ||
+    ""
+  ).trim().toLowerCase();
+
+  const determineIsHost = useCallback(() => {
+    if (role === "host" || stream?.role === "host" || stream?.isHost === true) return true;
+    const hostId = stream?.hostId || stream?.creator || stream?.userId || stream?.creatorId;
+    if (hostId && myId && String(hostId) === String(myId)) return true;
+    const hostName = (stream?.hostName || stream?.pseudonym || stream?.creatorName || "").trim().toLowerCase();
+    if (hostName && myName && hostName === myName) return true;
+    return false;
+  }, [role, stream, myId, myName]);
+
+  const [isHost, setIsHost] = useState(determineIsHost);
+
+  useEffect(() => {
+    if (determineIsHost()) {
+      setIsHost(true);
+    }
+  }, [determineIsHost]);
+
   const streamId = stream?.id || stream?.streamId;
 
   // Stable refs for props & callbacks to prevent effect re-trigger cascades
@@ -52,6 +79,7 @@ export default function LiveStreamStudioModal({
 
   // Sizing mode: 'compact' (440px) | 'theater' (980px) | 'fullscreen' (100vw/100vh)
   const [sizeMode, setSizeMode] = useState("compact");
+  const [isMinimized, setIsMinimized] = useState(false);
 
   // Stream state
   const [viewerCount, setViewerCount] = useState(stream?.viewerCount || (isHost ? 1 : 1));
@@ -70,6 +98,8 @@ export default function LiveStreamStudioModal({
   const [showReportModal, setShowReportModal] = useState(false);
   const [isMutedByHost, setIsMutedByHost] = useState(false);
   const [moderationTarget, setModerationTarget] = useState(null);
+  const [remoteTrack, setRemoteTrack] = useState(null);
+  const [audioBlocked, setAudioBlocked] = useState(false);
 
   // Media refs
   const localVideoRef = useRef(null);
@@ -124,6 +154,21 @@ export default function LiveStreamStudioModal({
   }, []);
   const spawnLocalHeartRef = useRef(spawnLocalHeart);
   spawnLocalHeartRef.current = spawnLocalHeart;
+
+  const handleUnlockAudio = useCallback(() => {
+    if (lkRoomRef.current) {
+      lkRoomRef.current
+        .startAudio()
+        .then(() => setAudioBlocked(false))
+        .catch(() => {});
+    }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current
+        .play()
+        .then(() => setAudioBlocked(false))
+        .catch(() => {});
+    }
+  }, []);
 
   // ── 2. Fetch initial chat history ─────────────────────────────────────────
   useEffect(() => {
@@ -216,11 +261,42 @@ export default function LiveStreamStudioModal({
           return;
         }
 
-        const wsUrl = tokenRes?.url || tokenRes?.serverUrl;
-        const token = tokenRes?.token;
+        console.log("[JM Live] 🎟️ Full token response from backend for stream:", streamId, tokenRes);
 
-        if (tokenRes?.viewerCount) {
-          updateViewerCountRef.current(tokenRes.viewerCount);
+        // Auto-elevate to host if backend token role is host
+        if (
+          tokenRes?.role === "host" ||
+          tokenRes?.isHost === true ||
+          tokenRes?.canPublish === true ||
+          tokenRes?.data?.role === "host" ||
+          tokenRes?.data?.isHost === true
+        ) {
+          setIsHost(true);
+        }
+
+        const wsUrl =
+          tokenRes?.url ||
+          tokenRes?.serverUrl ||
+          tokenRes?.wsUrl ||
+          tokenRes?.livekitUrl ||
+          tokenRes?.data?.url ||
+          tokenRes?.data?.serverUrl ||
+          tokenRes?.data?.wsUrl ||
+          tokenRes?.data?.livekitUrl ||
+          tokenRes?.result?.url ||
+          (typeof window !== "undefined" ? window.__LIVEKIT_URL__ : null);
+
+        const token =
+          tokenRes?.token ||
+          tokenRes?.data?.token ||
+          tokenRes?.accessToken ||
+          tokenRes?.jwt ||
+          tokenRes?.result?.token;
+
+        console.log("[JM Live] Extracted LiveKit connection parameters -> wsUrl:", wsUrl, "token exists:", Boolean(token));
+
+        if (tokenRes?.viewerCount || tokenRes?.data?.viewerCount) {
+          updateViewerCountRef.current(tokenRes.viewerCount || tokenRes.data.viewerCount);
         }
 
         if (wsUrl && token) {
@@ -228,28 +304,42 @@ export default function LiveStreamStudioModal({
           if (loaded && LiveKitRoom) {
             setConnectingStatus("Joining media broadcast…");
             const room = new LiveKitRoom({
-              adaptiveStream: true,
-              dynacast: true,
+              adaptiveStream: false,
+              dynacast: false,
+              stopLocalTrackOnUnpublish: true,
             });
             lkRoomRef.current = room;
 
             // Track Subscriptions (Viewer subscribes to Host via native attach)
             room.on(LiveKitRoomEvent.AudioPlaybackStatusChanged, () => {
               if (!room.canPlaybackAudio) {
-                room.startAudio().catch(() => {});
+                setAudioBlocked(true);
+                room.startAudio().then(() => setAudioBlocked(false)).catch(() => {});
+              } else {
+                setAudioBlocked(false);
               }
             });
 
-            room.on(LiveKitRoomEvent.TrackSubscribed, (track) => {
-              console.log("[JM Live] Subscribed to track kind:", track.kind);
-              if (track.kind === "video" && remoteVideoRef.current) {
-                track.attach(remoteVideoRef.current);
+            room.on(LiveKitRoomEvent.TrackSubscribed, (track, publication, participant) => {
+              console.log("[JM Live] 🎬 Subscribed to track kind:", track.kind, "from participant:", participant?.identity);
+              if (track.kind === "video") {
+                setRemoteTrack(track);
                 setIsConnected(true);
-                remoteVideoRef.current.play().catch(() => {});
+                setConnectingStatus("Live broadcast active");
+                if (remoteVideoRef.current) {
+                  try {
+                    track.attach(remoteVideoRef.current);
+                    remoteVideoRef.current.play().catch(() => {});
+                  } catch (e) {
+                    console.warn("[JM Live] Attach remote video error:", e);
+                  }
+                }
               } else if (track.kind === "audio") {
                 if (remoteAudioRef.current) {
-                  track.attach(remoteAudioRef.current);
-                  remoteAudioRef.current.play().catch(() => {});
+                  try {
+                    track.attach(remoteAudioRef.current);
+                    remoteAudioRef.current.play().catch(() => {});
+                  } catch {}
                 } else {
                   const el = track.attach();
                   el.id = "jm-livestream-remote-audio";
@@ -265,9 +355,36 @@ export default function LiveStreamStudioModal({
             room.on(LiveKitRoomEvent.TrackUnsubscribed, (track) => {
               try {
                 track.detach();
+                if (track.kind === "video") {
+                  setRemoteTrack(null);
+                }
                 const fallback = document.getElementById("jm-livestream-remote-audio");
                 if (fallback) fallback.remove();
               } catch {}
+            });
+
+            room.on(LiveKitRoomEvent.TrackUnmuted, (pub) => {
+              if (pub?.track?.kind === "video") {
+                setRemoteTrack(pub.track);
+                if (remoteVideoRef.current) {
+                  try {
+                    pub.track.attach(remoteVideoRef.current);
+                    remoteVideoRef.current.play().catch(() => {});
+                  } catch {}
+                }
+              }
+            });
+
+            room.on(LiveKitRoomEvent.TrackStreamStateChanged, (pub, streamState) => {
+              if (pub?.track?.kind === "video" && streamState === "active") {
+                setRemoteTrack(pub.track);
+                if (remoteVideoRef.current) {
+                  try {
+                    pub.track.attach(remoteVideoRef.current);
+                    remoteVideoRef.current.play().catch(() => {});
+                  } catch {}
+                }
+              }
             });
 
             // Zero-Latency Data Channel Listener (Chat, Reactions, Viewer Joins)
@@ -289,7 +406,7 @@ export default function LiveStreamStudioModal({
                     if (prev.some((m) => m.id === newChat.id)) return prev;
                     return [...prev, newChat];
                   });
-                } else if (data.type === "heart" || data.type === "reaction") {
+                } else if (data.type === "heart" || data.type === "reaction" || data.type === "heart_reaction") {
                   spawnLocalHeartRef.current(data.emoji || "❤️");
                 } else if (data.type === "viewer_joined") {
                   const joinerName = data.senderName || participant?.name || "A viewer";
@@ -334,6 +451,19 @@ export default function LiveStreamStudioModal({
                   createdAt: new Date().toISOString(),
                 },
               ]);
+
+              // Check if newly connected participant immediately published tracks
+              participant.trackPublications.forEach((pub) => {
+                if (pub.track && pub.track.kind === "video") {
+                  setRemoteTrack(pub.track);
+                  if (remoteVideoRef.current) {
+                    try {
+                      pub.track.attach(remoteVideoRef.current);
+                      remoteVideoRef.current.play().catch(() => {});
+                    } catch {}
+                  }
+                }
+              });
             });
 
             room.on(LiveKitRoomEvent.ParticipantDisconnected, (participant) => {
@@ -342,21 +472,58 @@ export default function LiveStreamStudioModal({
               setViewersList((prev) => prev.filter((v) => v.id !== participant.identity));
             });
 
-            // Room Disconnected (Only update connection state, do NOT prematurely end stream)
+            // Room Disconnected
             room.on(LiveKitRoomEvent.Disconnected, () => {
               console.log("[JM Live] LiveKit room disconnected");
               setIsConnected(false);
             });
 
-            // Connect room
-            await room.connect(wsUrl, token, { autoSubscribe: true });
-            if (!active) {
-              room.disconnect();
-              return;
-            }
+            // Connect room with safety timeout
+            try {
+              console.log(`[JM Live] Connecting to LiveKit SFU: ${wsUrl}...`);
+              await Promise.race([
+                room.connect(wsUrl, token, { autoSubscribe: true }),
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error("Media SFU connection timed out after 8s")), 8000)
+                ),
+              ]);
+              console.log("[JM Live] ✅ Connected successfully to LiveKit room:", room.name);
+              setIsConnected(true);
+              setConnectingStatus("Connected · Waiting for host video feed…");
 
-            console.log("[JM Live] ✅ Connected to room:", room.name);
-            setIsConnected(true);
+              // Immediately scan existing remote participants for already-published video & audio tracks
+              if (room.remoteParticipants && room.remoteParticipants.size > 0) {
+                console.log(`[JM Live] Scanning ${room.remoteParticipants.size} existing remote participants in room...`);
+                room.remoteParticipants.forEach((p) => {
+                  p.trackPublications.forEach((pub) => {
+                    if (pub.track) {
+                      console.log("[JM Live] Found existing track in room:", pub.track.kind);
+                      if (pub.track.kind === "video") {
+                        setRemoteTrack(pub.track);
+                        setConnectingStatus("Live broadcast active");
+                        if (remoteVideoRef.current) {
+                          try {
+                            pub.track.attach(remoteVideoRef.current);
+                            remoteVideoRef.current.play().catch(() => {});
+                          } catch {}
+                        }
+                      } else if (pub.track.kind === "audio") {
+                        if (remoteAudioRef.current) {
+                          try {
+                            pub.track.attach(remoteAudioRef.current);
+                            remoteAudioRef.current.play().catch(() => {});
+                          } catch {}
+                        }
+                      }
+                    }
+                  });
+                });
+              }
+            } catch (cErr) {
+              console.error("❌ [JM Live] LiveKit room connect error:", cErr.message, cErr);
+              setIsConnected(true);
+              setConnectingStatus(`Connecting media feed: ${cErr.message || "Waiting for stream"}`);
+            }
 
             // Announce viewer joined to the room via WebRTC DataChannel
             try {
@@ -378,11 +545,19 @@ export default function LiveStreamStudioModal({
             // Host publishes local audio & video tracks
             if (isHost) {
               try {
-                await room.localParticipant.setMicrophoneEnabled(!isMuted);
-                await room.localParticipant.setCameraEnabled(!isVideoOff);
-              } catch (pubErr) {
-                console.warn("[JM Live] Standard publish fallback:", pubErr.message);
-                if (localStreamRef.current) {
+                // Try official LiveKit native enable first
+                let publishedNatively = false;
+                try {
+                  await room.localParticipant.setMicrophoneEnabled(!isMuted);
+                  await room.localParticipant.setCameraEnabled(!isVideoOff);
+                  publishedNatively = true;
+                  console.log("[JM Live] ✅ Host native camera & mic enabled in room");
+                } catch (nativeErr) {
+                  console.warn("[JM Live] Native setCamera/Mic note:", nativeErr.message);
+                }
+
+                // If fallback required and localStream exists, publish track instances
+                if (!publishedNatively && localStreamRef.current) {
                   const { LocalAudioTrack, LocalVideoTrack } = await import("livekit-client");
                   for (const at of localStreamRef.current.getAudioTracks()) {
                     try {
@@ -397,6 +572,8 @@ export default function LiveStreamStudioModal({
                     } catch (e) {}
                   }
                 }
+              } catch (pubErr) {
+                console.warn("[JM Live] Publish note:", pubErr.message);
               }
             }
 
@@ -405,14 +582,25 @@ export default function LiveStreamStudioModal({
               room.remoteParticipants.forEach((p) => {
                 p.trackPublications.forEach((pub) => {
                   if (pub.isSubscribed && pub.track) {
-                    if (pub.track.kind === "video" && remoteVideoRef.current) {
-                      pub.track.attach(remoteVideoRef.current);
+                    if (pub.track.kind === "video") {
+                      setRemoteTrack(pub.track);
                       setIsConnected(true);
-                      remoteVideoRef.current.play().catch(() => {});
+                      if (remoteVideoRef.current) {
+                        try {
+                          pub.track.attach(remoteVideoRef.current);
+                          remoteVideoRef.current.play().catch(() => {});
+                        } catch {}
+                      }
                     } else if (pub.track.kind === "audio" && remoteAudioRef.current) {
-                      pub.track.attach(remoteAudioRef.current);
-                      remoteAudioRef.current.play().catch(() => {});
+                      try {
+                        pub.track.attach(remoteAudioRef.current);
+                        remoteAudioRef.current.play().catch(() => {});
+                      } catch {}
                     }
+                  } else if (!pub.isSubscribed && pub.trackSid) {
+                    try {
+                      pub.setSubscribed(true);
+                    } catch {}
                   }
                 });
               });
@@ -628,12 +816,14 @@ export default function LiveStreamStudioModal({
       }
       showToastRef.current?.("Live broadcast ended.");
       onCloseRef.current?.();
+      onStreamEndedRef.current?.(streamId);
       await livestreamService.endStream(streamId, {
         hostName: streamRef.current?.hostName || streamRef.current?.pseudonym,
         title: streamRef.current?.title,
       });
     } catch {
       onCloseRef.current?.();
+      onStreamEndedRef.current?.(streamId);
     }
   };
 
@@ -720,7 +910,7 @@ export default function LiveStreamStudioModal({
     // 2. WebRTC Data Channel instant broadcast to all peers
     if (lkRoomRef.current && lkRoomRef.current.localParticipant) {
       try {
-        const payload = JSON.stringify({ type: "heart", emoji });
+        const payload = JSON.stringify({ type: "heart_reaction", emoji });
         lkRoomRef.current.localParticipant.publishData(new TextEncoder().encode(payload), {
           reliable: false,
         });
@@ -812,20 +1002,111 @@ export default function LiveStreamStudioModal({
   const isFullscreen = sizeMode === "fullscreen";
   const isTheater = sizeMode === "theater";
 
+  // ── Floating Picture-in-Picture (PiP) Minimized Widget ──
+  if (isMinimized) {
+    return (
+      <div className="fixed bottom-6 right-6 z-[9999] w-[320px] sm:w-[360px] h-[210px] rounded-2xl border border-white/20 bg-[#120718] overflow-hidden flex flex-col group">
+        {/* Floating Mini Header */}
+        <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-2.5 bg-gradient-to-b from-black/90 via-black/50 to-transparent backdrop-blur-[2px]">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-extrabold uppercase shadow-sm shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              <span>LIVE</span>
+            </div>
+            <span className="text-xs font-bold text-white truncate max-w-[110px]">
+              {stream?.hostName || stream?.pseudonym || "Host"}
+            </span>
+            <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold bg-black/40 px-2 py-0.5 rounded-full border border-white/10 shrink-0">
+              <span>👁</span>
+              <span>{viewerCount}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {/* Maximize Button */}
+            <button
+              type="button"
+              onClick={() => setIsMinimized(false)}
+              className="w-7 h-7 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-all cursor-pointer shadow-sm"
+              title="Expand live broadcast"
+            >
+              <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+              </svg>
+            </button>
+            {/* End / Exit Button */}
+            {isHost ? (
+              <button
+                type="button"
+                onClick={handleEndStream}
+                className="px-2.5 py-1 rounded-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-[10px] font-extrabold shadow-md cursor-pointer transition-all hover:scale-105 active:scale-95"
+                title="End Broadcast"
+              >
+                End Live
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleLeaveStream}
+                className="w-7 h-7 rounded-full bg-white/15 hover:bg-red-500/40 text-white flex items-center justify-center transition-all cursor-pointer"
+                title="Exit Stream"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Video Canvas in PiP */}
+        <div className="w-full h-full cursor-pointer relative" onClick={() => setIsMinimized(false)}>
+          <LiveVideoCanvas
+            isHost={isHost}
+            isVideoOff={isVideoOff}
+            isConnected={isConnected}
+            connectingStatus={connectingStatus}
+            streamEndedBanner={streamEndedBanner}
+            stream={stream}
+            localStream={localStream}
+            localVideoRef={localVideoRef}
+            remoteVideoRef={remoteVideoRef}
+            remoteAudioRef={remoteAudioRef}
+            remoteTrack={remoteTrack}
+            audioBlocked={audioBlocked}
+            onUnlockAudio={handleUnlockAudio}
+            onReturnToExplore={() => {
+              triggerStreamEnded();
+              onCloseRef.current?.();
+            }}
+          />
+        </div>
+
+        {/* Floating Mini Overlay Footer on Hover */}
+        <div className="absolute bottom-2 inset-x-2 z-30 flex items-center justify-between pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+          <span className="text-[10px] text-white/80 bg-black/70 px-2 py-0.5 rounded-full backdrop-blur-sm">
+            Click to expand
+          </span>
+          <span className="text-[10px] text-pink font-semibold bg-black/70 px-2 py-0.5 rounded-full backdrop-blur-sm">
+            🍓 Juicy Match
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center transition-all ${
+      className={`fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center transition-all ${
         isFullscreen ? "p-0" : "p-3 sm:p-5"
       }`}
     >
       {/* ── Studio Frame Container ── */}
       <div
-        className={`w-full bg-gradient-to-b from-[#1c0f24] via-[#100716] to-[#08030b] overflow-hidden relative border border-white/10 flex flex-col transition-all duration-300 shadow-2xl ${
+        className={`w-full bg-[#110716] overflow-hidden relative border border-white/10 flex flex-col transition-all duration-300 ${
           isFullscreen
             ? "w-screen h-screen rounded-none max-w-none max-h-none border-0"
             : isTheater
-            ? "max-w-[980px] h-[88vh] max-h-[800px] rounded-3xl shadow-[0_25px_80px_rgba(0,0,0,0.85)]"
-            : "max-w-[440px] h-[85vh] max-h-[660px] rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.7)]"
+            ? "max-w-[960px] h-[88vh] max-h-[800px] rounded-2xl"
+            : "max-w-[420px] h-[85vh] max-h-[660px] rounded-2xl"
         }`}
       >
         {/* Top Header Bar */}
@@ -838,6 +1119,7 @@ export default function LiveStreamStudioModal({
           viewersList={viewersList}
           onToggleSize={toggleSize}
           onToggleFullscreen={toggleFullscreen}
+          onMinimize={() => setIsMinimized(true)}
           onOpenReport={() => setShowReportModal(true)}
           onModerateUser={(target) => setModerationTarget(target)}
           onClose={isHost ? handleEndStream : handleLeaveStream}
@@ -857,6 +1139,9 @@ export default function LiveStreamStudioModal({
             localVideoRef={localVideoRef}
             remoteVideoRef={remoteVideoRef}
             remoteAudioRef={remoteAudioRef}
+            remoteTrack={remoteTrack}
+            audioBlocked={audioBlocked}
+            onUnlockAudio={handleUnlockAudio}
             onReturnToExplore={() => {
               triggerStreamEnded();
               onCloseRef.current?.();

@@ -17,6 +17,7 @@ import { useChatActions } from "./hooks/useChatActions.jsx";
 import { useSendMessage } from "./hooks/useSendMessage";
 import { getLastMessageSnippet, formatBytes } from "./chatUtils";
 import { useApp } from "../../../context/AppContext";
+import Loader from "../../common/Loader";
 import { chatService } from "../../../services/chatService";
 import { blockService } from "../../../services/blockService";
 import { socketService } from "../../../services/socketService";
@@ -52,7 +53,10 @@ export default function ChatView({ connectionId: propConnectionId }) {
   // Conversations / Contacts State
   const [connections, setConnections] = useState([]);
   const [selectedConnId, setSelectedConnId] = useState(propConnectionId || null);
-  const [loadingConns, setLoadingConns] = useState(false);
+  const [loadingConns, setLoadingConns] = useState(
+    !(state.connections && state.connections.length > 0)
+  );
+  const isLoadingConnsRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
 
@@ -228,6 +232,8 @@ export default function ChatView({ connectionId: propConnectionId }) {
 
   // 1. Fetch Conversations / Connections List (normalizes both id and connectionId)
   const loadConnections = async (isBackground = false) => {
+    if (isLoadingConnsRef.current) return;
+    isLoadingConnsRef.current = true;
     if (!isBackground) setLoadingConns(true);
     try {
       const res = await chatService.getConnections();
@@ -283,6 +289,7 @@ export default function ChatView({ connectionId: propConnectionId }) {
         }
       }
     } finally {
+      isLoadingConnsRef.current = false;
       if (!isBackground) {
         setLoadingConns(false);
       }
@@ -295,8 +302,9 @@ export default function ChatView({ connectionId: propConnectionId }) {
 
     const connsTimer = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
+      if (socketService.isConnected) return;
       loadConnections(true);
-    }, 8000);
+    }, 60000);
 
     return () => clearInterval(connsTimer);
   }, []);
@@ -454,28 +462,35 @@ export default function ChatView({ connectionId: propConnectionId }) {
             setSearchQuery={setSearchQuery}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
+            loading={loadingConns}
             loadingConns={loadingConns}
           />
         </div>
 
         <main className={`flex-1 flex flex-col min-w-0 bg-[#0e0714] relative z-0 shadow-lg ${!selectedConnId ? "hidden md:flex" : "flex"}`}>
           {!activeConn ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[radial-gradient(ellipse_at_top_right,_rgba(233,22,113,0.06),_transparent_60%)]">
-              <div className="w-16 h-16 mb-4 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-lg">
-                <span className="text-2xl">💬</span>
+            loadingConns && connections.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[radial-gradient(ellipse_at_top_right,_rgba(233,22,113,0.06),_transparent_60%)]">
+                <Loader text="Loading your conversations…" size="medium" />
               </div>
-              <h3 className="text-base font-bold text-white mb-1.5">Juicy Match Chats</h3>
-              <p className="text-xs text-white/60 text-center max-w-xs leading-relaxed mb-4">
-                Select a conversation from the list to start chatting, share photos, or initiate voice & video calls.
-              </p>
-              <button
-                type="button"
-                onClick={() => navigate("discover")}
-                className="px-4 py-2 rounded-full bg-[#e91671] hover:bg-[#ff2082] text-white text-xs font-semibold transition-all shadow-[0_4px_16px_rgba(233,22,113,0.4)]"
-              >
-                Discover New Matches
-              </button>
-            </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[radial-gradient(ellipse_at_top_right,_rgba(233,22,113,0.06),_transparent_60%)]">
+                <div className="w-16 h-16 mb-4 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-lg">
+                  <span className="text-2xl">💬</span>
+                </div>
+                <h3 className="text-base font-bold text-white mb-1.5">Juicy Match Chats</h3>
+                <p className="text-xs text-white/60 text-center max-w-xs leading-relaxed mb-4">
+                  Select a conversation from the list to start chatting, share photos, or initiate voice & video calls.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate("discover")}
+                  className="px-4 py-2 rounded-full bg-[#e91671] hover:bg-[#ff2082] text-white text-xs font-semibold transition-all shadow-[0_4px_16px_rgba(233,22,113,0.4)]"
+                >
+                  Discover New Matches
+                </button>
+              </div>
+            )
           ) : (
             <>
               <ChatHeader
@@ -502,6 +517,7 @@ export default function ChatView({ connectionId: propConnectionId }) {
                 setShowDropdownMsgId={setOpenDropdownMsgId}
                 onToggleAudio={handleToggleAudio}
                 playingAudioId={playingAudioId}
+                isPeerTyping={isPeerTyping}
               />
 
               {/* Mutual Consent Required Notification Banner */}

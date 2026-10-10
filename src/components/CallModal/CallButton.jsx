@@ -10,7 +10,7 @@ export default function CallButton({ connectionId, medium = "audio", className =
 
   const isVideo = medium === "video";
   const requiredCredits = isVideo ? 15 : 5;
-  const currentCredits = state.wallet?.featureCredits ?? 100;
+  const currentCredits = state.wallet?.featureCredits !== undefined ? Number(state.wallet.featureCredits) : 0;
 
   const startCall = async () => {
     // 1. Pre-authorization check

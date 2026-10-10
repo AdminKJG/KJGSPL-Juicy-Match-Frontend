@@ -13,8 +13,8 @@ export default function WalletBadge({ className = "" }) {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  const fc = state.wallet?.featureCredits ?? 100;
-  const ai = state.wallet?.aiCredits ?? 20;
+  const fc = state.wallet?.featureCredits !== undefined ? Number(state.wallet.featureCredits) : 0;
+  const ai = state.wallet?.aiCredits !== undefined ? Number(state.wallet.aiCredits) : 0;
   const rawPlan = state.subscription?.planKey || state.subscription?.plan || state.subscription?.name || state.entitlement?.plan || "explore";
   const planKey = normalizePlanKey(rawPlan);
   const planName = getPlanDisplayName(planKey);

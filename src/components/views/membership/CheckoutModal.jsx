@@ -1,14 +1,20 @@
 import React, { useState } from "react";
-import { money } from "../../../utils/formatters";
 import { billingService } from "../../../services/billingService";
 import { openRazorpayModal } from "../../../services/razorpayService";
 import { useApp } from "../../../context/AppContext";
+import {
+  formatPrice,
+  getSubunitAmount,
+  resolvePlanPrice,
+  resolveCreditPackPrice,
+} from "../../../utils/pricingUtils";
 
 /**
  * CheckoutModal
  * ────────────────────────────────────────────────────────────────────────────
  * High-conversion, glassmorphism checkout modal supporting:
  * - Real-time Razorpay Checkout (UPI, Debit/Credit Card, NetBanking, Wallets)
+ * - Multi-currency localized pricing (USD, INR, EUR, GBP, AED, CAD, AUD)
  * - Developer Sandbox Simulation for testing
  * - Instant wallet balance sync
  */
@@ -21,41 +27,43 @@ export default function CheckoutModal({
   onSuccess,
   onClose,
 }) {
-  const { state, showToast, updateWallet } = useApp();
+  const { state, showToast, updateWallet, updateSubscription, refreshWallet } = useApp();
   const [processing, setProcessing] = useState(false);
   const [step, setStep] = useState("confirm"); // "confirm" | "paying" | "success"
 
-  const credits = item.credits || item.amount || quote.amount || 0;
-  const price = quote.price ?? item.price ?? item.amount ?? 0;
-  const currency = quote.currency || item.currency || selectedCurrency;
+  const currency = selectedCurrency || quote.currency || item.currency || "USD";
   const sku = item.sku || quote.sku || "";
+  const credits = item.credits || item.amount || quote.amount || 0;
 
-  const formatPrice = (p, curr = currency) => {
-    if (p == null) return "—";
-    if (typeof p === "number") {
-      if (p < 100 && p > 0 && !Number.isInteger(p)) {
-        return money(p, curr, 0);
-      }
-      if (p >= 100) {
-        return money(p, curr);
-      }
-      return money(p, curr, 0);
+  // Resolve localized price dynamically
+  let price = item.price;
+  if (price == null || price === 0 || (item.currency && item.currency !== currency)) {
+    if (type === "subscription") {
+      price = resolvePlanPrice(sku, currency, quote);
+    } else {
+      price = resolveCreditPackPrice(sku, currency, quote);
     }
-    return String(p);
-  };
+  }
 
   const handleRazorpayCheckout = async () => {
     setProcessing(true);
     setStep("paying");
     try {
-      // 1. Generate or fetch commercial quote
+      // 1. Generate or fetch commercial quote for the selected currency
       const quoteRes = await billingService.createQuote(sku, currency).catch(() => null);
       const quoteId = quoteRes?.id || quoteRes?.quoteId || quote?.quoteId || `quote-${Date.now()}`;
+      const quotePrice = quoteRes?.price != null ? quoteRes.price : price;
+      const subunitAmount = quoteRes?.amount || getSubunitAmount(quotePrice, currency);
 
       // 2. Create Razorpay Order on backend
       let orderRes = null;
       try {
-        orderRes = await billingService.createOrder(quoteId);
+        orderRes = await billingService.createOrder({
+          planId: sku,
+          quoteId,
+          currency,
+          amount: subunitAmount,
+        });
       } catch (err) {
         console.warn("[Razorpay Order Warning]:", err?.message);
         // If backend has not yet implemented /v1/billing/orders, check if frontend has a real key
@@ -66,58 +74,97 @@ export default function CheckoutModal({
           );
         }
         orderRes = {
-          amount: Math.round((typeof price === "number" ? price : 10) * 100),
+          amount: subunitAmount,
           currency: currency,
           keyId: frontendKey,
         };
       }
 
-      // If backend returned direct checkout redirect url (e.g. hosted checkout)
-      if (orderRes?.checkoutUrl) {
-        window.location.href = orderRes.checkoutUrl;
-        return;
+      // 3. Normalize checkoutUrl if backend sent its internal localhost:8100 address
+      let safeCheckoutUrl = orderRes?.checkoutUrl;
+      const baseApi = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+      if (
+        safeCheckoutUrl &&
+        baseApi &&
+        (safeCheckoutUrl.includes("localhost:") || safeCheckoutUrl.includes("127.0.0.1:"))
+      ) {
+        safeCheckoutUrl = safeCheckoutUrl.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, baseApi);
       }
 
-      // 3. Launch native Razorpay checkout modal
-      await openRazorpayModal({
-        order: orderRes || {},
-        quote: {
-          sku,
-          price,
-          currency,
-          name: item.label || item.name || `${credits} Credits Top-Up`,
-          credits,
-        },
-        member: state?.me || {},
-        onSuccess: async (paymentResponse) => {
-          showToast?.("Payment received! Verifying transaction… ✨", "success");
-          try {
-            await billingService.verifyRazorpayPayment({
-              quoteId,
-              orderId: paymentResponse.razorpay_order_id || orderRes?.orderId,
-              paymentId: paymentResponse.razorpay_payment_id,
-              signature: paymentResponse.razorpay_signature,
-            });
-          } catch {}
+      // Check if we can launch native Razorpay modal in-app
+      const hasRazorpayCredentials =
+        (orderRes?.keyId || orderRes?.key || orderRes?.razorpay_key || import.meta.env.VITE_RAZORPAY_KEY_ID) &&
+        (orderRes?.orderId || orderRes?.id);
 
-          // Grant credits to wallet
-          applyCreditGrant();
-          setStep("success");
-          setTimeout(() => {
-            onSuccess?.();
-            onClose?.();
-          }, 1600);
-        },
-        onError: (err) => {
-          setProcessing(false);
-          setStep("confirm");
-          showToast?.(err?.description || err?.message || "Payment cancelled or failed.", "error");
-        },
-        onDismiss: () => {
-          setProcessing(false);
-          setStep("confirm");
-        },
-      });
+      if (hasRazorpayCredentials) {
+        try {
+          await openRazorpayModal({
+            order: orderRes || {},
+            quote: {
+              sku,
+              price,
+              currency,
+              name: item.label || item.name || `${credits} Credits Top-Up`,
+              credits,
+            },
+            member: state?.me || {},
+            onSuccess: async (paymentResponse) => {
+              showToast?.("Payment received! Verifying transaction… ✨", "success");
+              try {
+                await billingService.verifyRazorpayPayment({
+                  quoteId,
+                  razorpay_order_id: paymentResponse.razorpay_order_id || orderRes?.orderId,
+                  razorpay_payment_id: paymentResponse.razorpay_payment_id,
+                  razorpay_signature: paymentResponse.razorpay_signature,
+                  orderId: paymentResponse.razorpay_order_id || orderRes?.orderId,
+                  paymentId: paymentResponse.razorpay_payment_id,
+                  signature: paymentResponse.razorpay_signature,
+                });
+              } catch {}
+
+              // Refresh global billing state immediately
+              try {
+                const refreshedBilling = await billingService.getBillingState(currency);
+                if (refreshedBilling) {
+                  updateSubscription?.(refreshedBilling.subscription || refreshedBilling.plan);
+                  refreshWallet?.();
+                }
+              } catch {}
+
+              // Grant credits to wallet
+              applyCreditGrant();
+              setStep("success");
+              setTimeout(() => {
+                onSuccess?.();
+                onClose?.();
+              }, 1600);
+            },
+            onError: (err) => {
+              setProcessing(false);
+              setStep("confirm");
+              showToast?.(err?.description || err?.message || "Payment cancelled or failed.", "error");
+            },
+            onDismiss: () => {
+              setProcessing(false);
+              setStep("confirm");
+            },
+          });
+          return;
+        } catch (modalErr) {
+          console.warn("Failed to open Razorpay in-app modal, falling back to hosted checkout url:", modalErr);
+          if (safeCheckoutUrl) {
+            window.location.href = safeCheckoutUrl;
+            return;
+          }
+          throw modalErr;
+        }
+      }
+
+      // If backend only returned hosted checkout url
+      if (safeCheckoutUrl) {
+        window.location.href = safeCheckoutUrl;
+        return;
+      }
     } catch (err) {
       setProcessing(false);
       setStep("confirm");
@@ -127,13 +174,23 @@ export default function CheckoutModal({
 
   const applyCreditGrant = () => {
     if (type === "subscription") {
-      const extraFC = sku.includes("premium") ? 2500 : 1000;
-      const extraAI = sku.includes("premium") ? 250 : 100;
+      const isPremium = sku.includes("premium");
+      const extraFC = isPremium ? 2500 : 1000;
+      const extraAI = isPremium ? 250 : 100;
+      const planKey = isPremium ? "premium" : "connect";
+      const planName = isPremium ? "Premium VIP" : "Connect Plan";
+
       updateWallet?.((prev) => ({
         ...prev,
         featureCredits: (prev?.featureCredits || 0) + extraFC,
         aiCredits: (prev?.aiCredits || 0) + extraAI,
       }));
+
+      updateSubscription?.({
+        planKey,
+        name: planName,
+        status: "active",
+      });
     } else if (isAi) {
       updateWallet?.((prev) => ({
         ...prev,
@@ -145,6 +202,7 @@ export default function CheckoutModal({
         featureCredits: (prev?.featureCredits || 0) + credits,
       }));
     }
+    refreshWallet?.();
   };
 
   return (

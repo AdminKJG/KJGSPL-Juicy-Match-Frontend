@@ -25,7 +25,7 @@ export default function CallCreditBar({
   const ratePerMinute = isVideo ? 15 : 5;
 
   // Caller's starting feature credits
-  const initialFC = state.wallet?.featureCredits ?? 100;
+  const initialFC = state.wallet?.featureCredits !== undefined ? Number(state.wallet.featureCredits) : 0;
 
   // Billed minutes (rounded up once per call)
   const billedMinutes = Math.max(1, Math.ceil(callSeconds / 60));

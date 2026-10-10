@@ -3,6 +3,7 @@ import Icon from "../common/Icon";
 import Avatar from "../common/Avatar";
 import { useApp } from "../../context/AppContext";
 import { title } from "../../utils/formatters";
+import { normalizePlanKey } from "../../utils/planUtils";
 
 import WalletBadge from "./WalletBadge";
 
@@ -22,8 +23,27 @@ export default function Topbar() {
   };
 
   const pseudonym = state?.me?.profile?.pseudonym || "Member";
-  const plan = title(state?.subscription?.name || state?.subscription?.planKey || state?.entitlement?.plan || "free");
-  const notificationsCount = state?.notifications?.filter((n) => !n.read).length || 47;
+  const rawPlan =
+    state?.subscription?.planKey ||
+    state?.subscription?.plan ||
+    state?.subscription?.planId ||
+    state?.subscription?.plan_id ||
+    state?.subscription?.tier ||
+    state?.subscription?.name ||
+    state?.me?.account?.membership ||
+    state?.me?.account?.tier ||
+    state?.me?.account?.plan ||
+    state?.me?.membership ||
+    state?.entitlement?.plan ||
+    "explore";
+  const planKey = normalizePlanKey(rawPlan);
+  const planBadge = planKey === "premium" ? "VIP" : planKey === "connect" ? "PRO" : "FREE";
+  const notificationsCount =
+    typeof state?.unreadNotificationCount === "number"
+      ? state.unreadNotificationCount
+      : Array.isArray(state?.notifications)
+      ? state.notifications.filter((n) => !n.read_at && !n.read).length
+      : 0;
 
   return (
     <header className="sticky top-0 z-40 h-[72px] bg-night/80 backdrop-blur-md border-b border-white/10 flex items-center justify-between px-6">
@@ -69,7 +89,7 @@ export default function Topbar() {
           <Avatar profile={state?.me?.profile} className="w-8 h-8 rounded-full bg-pink text-white flex items-center justify-center font-bold text-sm shadow-sm" />
           <div className="hidden lg:flex flex-col">
             <span className="text-[0.9rem] font-bold text-white leading-tight">{pseudonym}</span>
-            <span className="text-[0.65rem] font-extrabold uppercase tracking-widest text-pink mt-0.5">✦ {plan}</span>
+            <span className="text-[0.65rem] font-extrabold uppercase tracking-widest text-pink mt-0.5">✦ {planBadge}</span>
           </div>
         </div>
       </div>

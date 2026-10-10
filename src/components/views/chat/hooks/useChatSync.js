@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { saveLocalChatMessage } from "../../../../services/chatService";
 import { blobUrlCache } from "../AuthImage";
 import { socketService } from "../../../../services/socketService";
+import { getCurrentUserIdFromToken } from "../../../../services/api";
 
 export function useChatSync({
   tabId,
@@ -107,7 +108,8 @@ export function useChatSync({
       const currentState = stateRef.current;
       const currentConnections = connectionsRef.current;
 
-      const myUserId = currentState?.me?.id || currentState?.me?.account?.id || "jm-member-1";
+      const tokenUserId = (typeof getCurrentUserIdFromToken === "function" ? getCurrentUserIdFromToken() : "") || "";
+      const myUserId = currentState?.me?.id || currentState?.me?.account?.id || tokenUserId || "";
       const activePeerId = currentActiveConn?.peer?.id;
       const activePeerName = (currentActiveConn?.peer?.pseudonym || currentActiveConn?.peer?.name || "").trim().toLowerCase();
       const senderName = (data.senderName || incomingMsg.senderName || "").trim().toLowerCase();
@@ -122,12 +124,6 @@ export function useChatSync({
         incomingMsg.mine
       );
 
-      const cleanIncoming = {
-        ...incomingMsg,
-        isMine: isFromMe,
-        mine: isFromMe,
-        isReceived: !isFromMe,
-      };
 
       const incomingConnId =
         data.connectionId ||
@@ -137,16 +133,20 @@ export function useChatSync({
         incomingMsg.connection_id ||
         incomingMsg.conversationId;
 
-      // 1. Persist incoming message locally under all possible keys
+      const cleanIncoming = {
+        ...incomingMsg,
+        connectionId: incomingConnId || incomingMsg.connectionId,
+        connection_id: incomingConnId || incomingMsg.connection_id,
+        isMine: isFromMe,
+        mine: isFromMe,
+        isReceived: !isFromMe,
+      };
+
+      // 1. Persist incoming message locally under ONLY its own connection/pair keys
+      const pairKey = senderId && recipientId ? [senderId, recipientId].sort().join("::") : null;
       const allKeys = [
         incomingConnId,
-        senderId,
-        recipientId,
-        currentActiveConn?.id,
-        currentActiveConn?.connectionId,
-        activePeerId ? [myUserId, activePeerId].sort().join("::") : null,
-        senderId && recipientId ? [senderId, recipientId].sort().join("::") : null,
-        activePeerId,
+        pairKey,
       ].filter(Boolean);
       saveLocalChatMessage(allKeys, cleanIncoming);
 
@@ -168,16 +168,17 @@ export function useChatSync({
         } catch {}
       }
 
-      // 2. Check if this incoming message belongs to current active conversation
+      // 2. Strictly check if this incoming message belongs to current active conversation
       const currentActiveId = currentActiveConn?.id || currentActiveConn?.connectionId || currentActiveConn?.connection_id;
       const isForThisActiveChat = Boolean(
-        (incomingConnId && currentActiveId && (incomingConnId === currentActiveId || String(incomingConnId).toLowerCase() === String(currentActiveId).toLowerCase())) ||
-        (activePeerId && (senderId === activePeerId || recipientId === activePeerId)) ||
-        (activePeerName && (
-          (senderName && (activePeerName === senderName || activePeerName.includes(senderName) || senderName.includes(activePeerName))) ||
-          (recipientName && (activePeerName === recipientName || activePeerName.includes(recipientName) || recipientName.includes(activePeerName)))
+        (incomingConnId && currentActiveId && (
+          incomingConnId === currentActiveId ||
+          String(incomingConnId).toLowerCase() === String(currentActiveId).toLowerCase()
         )) ||
-        (currentConnections.length <= 1 && currentActiveConn)
+        (activePeerId && (
+          (senderId === activePeerId && (recipientId === myUserId || !recipientId)) ||
+          (senderId === myUserId && recipientId === activePeerId)
+        ))
       );
 
       if (isForThisActiveChat) {
@@ -216,14 +217,12 @@ export function useChatSync({
         prev.map((c) => {
           const cId = c.id || c.connectionId || c.connection_id;
           const cPeerId = c.peer?.id;
-          const cPeerName = (c.peer?.pseudonym || c.peer?.name || "").trim().toLowerCase();
           const isMatch =
-            (incomingConnId && cId === incomingConnId) ||
-            (cPeerId && (cPeerId === senderId || cPeerId === recipientId)) ||
-            (cPeerName && (
-              (senderName && (cPeerName === senderName || senderName.includes(cPeerName) || cPeerName.includes(senderName))) ||
-              (recipientName && (cPeerName === recipientName || recipientName.includes(cPeerName) || cPeerName.includes(recipientName)))
-            ));
+            (incomingConnId && cId && (
+              cId === incomingConnId ||
+              String(cId).toLowerCase() === String(incomingConnId).toLowerCase()
+            )) ||
+            (cPeerId && (cPeerId === senderId || cPeerId === recipientId));
 
           if (isMatch) {
             return {

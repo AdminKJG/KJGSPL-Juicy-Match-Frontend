@@ -678,3 +678,19 @@
     max-width: 85%;
   }
 }
+
+/* Peer / Bot Typing Bubble Animation */
+@keyframes jm-bounce-typing {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.jm-typing-dot {
+  animation: jm-bounce-typing 1.2s infinite ease-in-out;
+}

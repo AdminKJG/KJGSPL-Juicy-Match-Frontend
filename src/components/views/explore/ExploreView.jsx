@@ -4,7 +4,6 @@ import PageHead from "../../common/PageHead";
 import Loader from "../../common/Loader";
 import EmptyState from "../../common/EmptyState";
 import AtmosphericMap from "../../common/AtmosphericMap";
-import LiveStreamStudioModal from "../../common/modals/livestream/LiveStreamStudioModal";
 import StartLiveStreamModal from "../../common/modals/livestream/StartLiveStreamModal";
 import { useApp } from "../../../context/AppContext";
 import { exploreService } from "../../../services/exploreService";
@@ -15,7 +14,7 @@ import { blockService } from "../../../services/blockService";
 import { formatDate, formatRelativeTime, money, title, portraitClass, getPeerPortraitIndex } from "../../../utils/formatters";
 
 export default function ExploreView() {
-  const { navigate, state, showToast, openModal, closeModal } = useApp();
+  const { navigate, state, showToast, openModal, closeModal, openLiveStream } = useApp();
 
   // Active Explore Section Tab: "areas" | "events" | "live"
   const [activeTab, setActiveTab] = useState("areas");
@@ -41,7 +40,6 @@ export default function ExploreView() {
   // Live Streams ("Go Live" & WebRTC Broadcasts)
   const [liveStreams, setLiveStreams] = useState([]);
   const [loadingLiveStreams, setLoadingLiveStreams] = useState(false);
-  const [activeStreamModal, setActiveStreamModal] = useState(null); // { stream, role: "host" | "viewer" }
   const [isStartingStream, setIsStartingStream] = useState(false);
   const [streamTitleInput, setStreamTitleInput] = useState("");
   const [recentlyEndedStream, setRecentlyEndedStream] = useState(() => livestreamService.getLastEndedStream());
@@ -189,11 +187,13 @@ export default function ExploreView() {
     loadLiveStreams(true);
   }, []);
 
-  // Periodic refresh of live broadcasts when active on Live tab (seamless background fetch, no spinner flicker)
   useEffect(() => {
     if (activeTab !== "live") return;
     loadLiveStreams(false);
-    const interval = setInterval(() => loadLiveStreams(false), 12000);
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      loadLiveStreams(false);
+    }, 30000);
     return () => clearInterval(interval);
   }, [activeTab]);
 
@@ -327,10 +327,7 @@ export default function ExploreView() {
         status: "live",
       };
 
-      setActiveStreamModal({
-        stream: activeStreamObj,
-        role: "host",
-      });
+      openLiveStream(activeStreamObj, "host");
 
       // Broadcast globally to all tabs & sessions
       broadcastLiveEvent({
@@ -365,19 +362,36 @@ export default function ExploreView() {
     }
   };
 
-  // Viewer watches broadcast
+  // Viewer watches broadcast (or host re-enters own broadcast)
   const handleWatchStream = (s) => {
-    setActiveStreamModal({
-      stream: {
-        id: s.id || s.streamId,
-        title: s.title || "Live Stream",
-        hostName: s.pseudonym || s.hostName || s.creator || "Host",
-        hostPortrait: s.portrait ?? s.hostPortrait ?? 0,
-        hostPhoto: s.photo || s.hostPhoto,
-        viewerCount: s.viewerCount || 1,
-      },
-      role: "viewer",
-    });
+    const myId = state.me?.id || state.me?.account?.id;
+    const myName = (
+      state.me?.profile?.pseudonym ||
+      state.me?.account?.pseudonym ||
+      state.me?.name ||
+      ""
+    ).trim().toLowerCase();
+
+    const hostId = s.hostId || s.creator || s.userId;
+    const hostName = (s.pseudonym || s.hostName || s.creator || "").trim().toLowerCase();
+
+    const isMine = Boolean(
+      (myId && hostId && String(myId) === String(hostId)) ||
+      (myName && hostName && myName === hostName)
+    );
+
+    openLiveStream({
+      id: s.id || s.streamId,
+      streamId: s.id || s.streamId,
+      title: s.title || "Live Stream",
+      hostName: s.pseudonym || s.hostName || s.creator || "Host",
+      hostPortrait: s.portrait ?? s.hostPortrait ?? 0,
+      hostPhoto: s.photo || s.hostPhoto,
+      hostId: hostId,
+      viewerCount: s.viewerCount || 1,
+      role: isMine ? "host" : "viewer",
+      isHost: isMine,
+    }, isMine ? "host" : "viewer");
   };
 
   const cityLabel = mapData?.city || (state.me?.profile?.zone ? title(state.me.profile.zone) : "Bengaluru");
@@ -1045,23 +1059,7 @@ export default function ExploreView() {
         currentUser={state.me}
       />
 
-      {/* Fullscreen Live Stream Studio / Viewer Modal */}
-      {activeStreamModal && (
-        <LiveStreamStudioModal
-          stream={activeStreamModal.stream}
-          role={activeStreamModal.role}
-          onStreamEnded={handleStreamEnded}
-          onClose={() => {
-            const endedId = activeStreamModal.stream?.id;
-            setActiveStreamModal(null);
-            if (endedId && livestreamService.isStreamEndedLocally(endedId)) {
-              handleStreamEnded(endedId);
-            }
-            loadLiveStreams();
-          }}
-          showToast={showToast}
-        />
-      )}
+      {/* (Live stream studio rendered globally at App.jsx level for seamless PiP navigation) */}
     </div>
   );
 }

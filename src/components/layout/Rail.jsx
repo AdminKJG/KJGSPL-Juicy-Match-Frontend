@@ -75,6 +75,13 @@ export default function Rail() {
   const isConnect = activePlanKey === "connect";
   const planBadge = getPlanBadge(activePlanKey);
 
+  const notificationsCount =
+    typeof state?.unreadNotificationCount === "number"
+      ? state.unreadNotificationCount
+      : Array.isArray(state?.notifications)
+      ? state.notifications.filter((n) => !n.read_at && !n.read).length
+      : 0;
+
   return (
     <aside className={`sticky top-0 h-screen m-0 flex flex-col bg-gradient-to-b from-[#1e0d26] to-[#120718] border-r border-white/10 rounded-r-[32px] shadow-[12px_0_40px_rgba(0,0,0,0.42),0_0_0_1px_rgba(244,63,94,0.06)] backdrop-blur-xl z-50 overflow-y-auto no-scrollbar transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${isCollapsed ? "w-[76px] px-2 py-5 rounded-r-[20px] items-center" : "w-[240px] pt-6 pb-5 pl-5 pr-5"}`}>
       <div className={`flex items-center justify-between gap-2 mb-6 ${isCollapsed ? "flex-col w-full !mb-5" : ""}`}>
@@ -120,15 +127,23 @@ export default function Rail() {
             <button
               key={item.id}
               type="button"
-              className={`flex items-center gap-3.5 h-[50px] px-4.5 rounded-2xl text-[1.02rem] font-semibold bg-transparent border-none cursor-pointer w-full text-left transition-all duration-200 select-none ${isCollapsed ? "justify-center px-0 w-11 h-11 rounded-[14px]" : ""} ${isActive ? "bg-gradient-to-br from-[#e11d48] to-[#be123c] text-white shadow-[0_6px_20px_rgba(225,29,72,0.4)]" : "text-[#a595a8] hover:bg-white/5 hover:text-white"}`}
+              className={`relative flex items-center gap-3.5 h-[50px] px-4.5 rounded-2xl text-[1.02rem] font-semibold bg-transparent border-none cursor-pointer w-full text-left transition-all duration-200 select-none ${isCollapsed ? "justify-center px-0 w-11 h-11 rounded-[14px]" : ""} ${isActive ? "bg-gradient-to-br from-[#e11d48] to-[#be123c] text-white shadow-[0_6px_20px_rgba(225,29,72,0.4)]" : "text-[#a595a8] hover:bg-white/5 hover:text-white"}`}
               onClick={() => navigate(item.id)}
               aria-current={isActive ? "page" : undefined}
               title={isCollapsed ? item.label : undefined}
             >
-              <span className="flex items-center justify-center w-6 h-6 shrink-0">
+              <span className="flex items-center justify-center w-6 h-6 shrink-0 relative">
                 <Icon name={item.icon} className={`w-[21px] h-[21px] stroke-[2] transition-transform duration-150 group-hover:scale-105 ${isActive ? "stroke-white stroke-[2.2]" : "stroke-currentColor"}`} />
+                {isCollapsed && item.id === "notifications" && notificationsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-pink border-2 border-[#1e0d26]" />
+                )}
               </span>
               {!isCollapsed && <span className="flex items-center flex-1 leading-none tracking-tight">{item.label}</span>}
+              {!isCollapsed && item.id === "notifications" && notificationsCount > 0 && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink text-white shrink-0 shadow-[0_2px_8px_rgba(233,22,113,0.4)]">
+                  {notificationsCount > 99 ? "99+" : notificationsCount}
+                </span>
+              )}
               {!isCollapsed && Boolean(planBadge) && item.id === "membership" && (
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${
                   isActive 

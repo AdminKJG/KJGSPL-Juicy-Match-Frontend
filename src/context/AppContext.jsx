@@ -1,17 +1,21 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { demoActors } from "../data/seedData";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { demoActors, initialMe } from "../data/seedData";
 import { playSound } from "../utils/formatters";
 import { authService } from "../services/authService";
 import { profileService } from "../services/profileService";
 import { chatService } from "../services/chatService";
 import { blockService } from "../services/blockService";
 import { billingService } from "../services/billingService";
+import { preferenceService } from "../services/preferenceService";
+import { notificationService } from "../services/notificationService";
+import { socketService } from "../services/socketService";
 import {
   setStoredTokens,
   clearStoredTokens,
   getCurrentUserIdFromToken,
 } from "../services/api";
 import { getInitialAppState, STORAGE_KEY } from "./initialState";
+import { normalizePlanKey, getPlanDisplayName } from "../utils/planUtils";
 import { useAppRouting } from "../hooks/useAppRouting";
 import { useCallManager } from "../hooks/useCallManager";
 import { useLiveStreamManager } from "../hooks/useLiveStreamManager";
@@ -20,6 +24,7 @@ const AppContext = createContext();
 
 export function AppProvider({ children }) {
   const [state, setState] = useState(getInitialAppState);
+  const justLoggedInAtRef = useRef(0);
 
   // Dedicated App Routing, Modals, and Toasts Hook
   const {
@@ -69,9 +74,17 @@ export function AppProvider({ children }) {
 
   // Listen for session expiry from API interceptor
   useEffect(() => {
-    const handleSessionExpired = () => {
-      setState((prev) => ({ ...prev, authenticated: false }));
-      showToast("Session expired. Please sign in again.");
+    const handleSessionExpired = (e) => {
+      clearStoredTokens();
+      setState((prev) => ({
+        ...prev,
+        authenticated: false,
+        me: initialMe,
+        discoverProfiles: [],
+        connections: [],
+      }));
+      const msg = e?.detail?.message || "Session expired. Please sign in again.";
+      showToast(msg, "info");
       navigate("signin");
     };
     window.addEventListener("jm-session-expired", handleSessionExpired);
@@ -86,16 +99,19 @@ export function AppProvider({ children }) {
     );
   }, [state.prefs?.reducedMotion]);
 
-  // Load real profile, connections & subscription from API on auth
+  // Load real profile, connections, subscription, notifications & preferences from API on auth
   useEffect(() => {
     if (!state.authenticated) return;
     let cancelled = false;
     const loadRealData = async () => {
       try {
-        const [meData, connRes, billingRes] = await Promise.allSettled([
+        const [meData, connRes, billingRes, notifRes, unreadRes, prefRes] = await Promise.allSettled([
           profileService.getMe(),
           chatService.getConnections(),
           billingService.getBillingState(),
+          notificationService.getNotifications({ limit: 50 }),
+          notificationService.getUnreadCount(),
+          notificationService.getPreferences(),
         ]);
         if (cancelled) return;
 
@@ -143,33 +159,243 @@ export function AppProvider({ children }) {
           const b = billingRes.value;
           setState((prev) => ({
             ...prev,
-            wallet: {
-              ...prev.wallet,
-              featureCredits: b.featureCredits ?? prev.wallet?.featureCredits ?? 100,
-              aiCredits: b.aiCredits ?? prev.wallet?.aiCredits ?? 20,
-              balance: b.balance ?? prev.wallet?.balance ?? 0,
-            },
-            subscription: b.subscription || prev.subscription,
+            wallet: extractWallet(b, prev.wallet),
+            subscription: extractSubscription(b, prev.subscription),
           }));
         }
-      } catch {}
+
+        // Notifications & unread badge
+        let loadedItems = [];
+        let loadedUnread = 0;
+        if (notifRes.status === "fulfilled" && notifRes.value) {
+          const rawNotifs = notifRes.value;
+          loadedItems = Array.isArray(rawNotifs)
+            ? rawNotifs
+            : rawNotifs?.items || rawNotifs?.data?.items || rawNotifs?.data || [];
+          loadedUnread =
+            typeof rawNotifs?.unreadCount === "number"
+              ? rawNotifs.unreadCount
+              : loadedItems.filter((n) => !n.read_at && !n.read).length;
+        }
+
+        if (unreadRes.status === "fulfilled" && typeof unreadRes.value?.unreadCount === "number") {
+          loadedUnread = unreadRes.value.unreadCount;
+        }
+
+        setState((prev) => ({
+          ...prev,
+          notifications: Array.isArray(loadedItems) ? loadedItems : prev.notifications,
+          unreadNotificationCount: loadedUnread,
+        }));
+
+        // Notification Preferences
+        if (prefRes.status === "fulfilled" && prefRes.value) {
+          const p = prefRes.value?.preferences || prefRes.value?.data || prefRes.value;
+          if (p && typeof p === "object") {
+            setState((prev) => ({
+              ...prev,
+              prefs: {
+                ...prev.prefs,
+                ...p,
+              },
+            }));
+          }
+        }
+      } catch (err) {
+        console.warn("[AppContext] Initial loadRealData warning:", err.message);
+      }
     };
     loadRealData();
     return () => { cancelled = true; };
   }, [state.authenticated]);
 
+  // Real-time Notification Socket Listener (notification:received & notification:badge_update)
+  useEffect(() => {
+    if (!state.authenticated) return;
+
+    // Connect socket if not yet connected
+    socketService.connect();
+
+    // 1. Handle incoming notification pushed by backend
+    const handleNewNotification = (rawPayload) => {
+      if (!rawPayload) return;
+      const notif = rawPayload.notification || rawPayload.data || rawPayload;
+      if (!notif || (!notif.id && !notif.title)) return;
+
+      console.log("🔔 [JM Socket] Real-time notification received:", notif);
+
+      // Play subtle chime sound
+      playSound(state.prefs?.sound !== false);
+
+      // Prepend to notifications list & increment unread counter
+      setState((prev) => {
+        const currentList = prev.notifications || [];
+        const exists = currentList.some((item) => item.id === notif.id);
+        const nextList = exists ? currentList : [notif, ...currentList];
+        const nextUnread = typeof prev.unreadNotificationCount === "number"
+          ? prev.unreadNotificationCount + (exists ? 0 : 1)
+          : nextList.filter((n) => !n.read_at && !n.read).length;
+        return {
+          ...prev,
+          notifications: nextList,
+          unreadNotificationCount: nextUnread,
+        };
+      });
+
+      // Suppress redundant security popup toast if user literally just signed in on this client (avoid double toast with "Welcome back")
+      const isRecentSelfLogin =
+        Date.now() - justLoggedInAtRef.current < 6000 &&
+        (notif.category === "security" ||
+          (typeof notif.title === "string" && notif.title.toLowerCase().includes("login")));
+
+      if (!isRecentSelfLogin) {
+        // Display rich in-app toast preview with deep-link navigation
+        const toastTitle = notif.title || "New Notification";
+        const toastSnippet = notif.body ? ` — ${notif.body}` : "";
+        showToast(`${toastTitle}${toastSnippet}`, "info", {
+          onClick: () => {
+            if (notif.id) {
+              notificationService.markNotificationRead(notif.id).catch(() => {});
+              markNotificationRead(notif.id);
+            }
+            if (notif.route) {
+              navigate(notif.route.replace(/^\//, ""));
+            }
+          },
+        });
+      }
+    };
+
+    // 2. Handle badge update pushed by backend
+    const handleBadgeUpdate = (data) => {
+      const count =
+        typeof data?.unreadCount === "number"
+          ? data.unreadCount
+          : typeof data?.count === "number"
+          ? data.count
+          : typeof data === "number"
+          ? data
+          : null;
+      if (count !== null) {
+        console.log("🔢 [JM Socket] Notification badge updated:", count);
+        setState((prev) => ({
+          ...prev,
+          unreadNotificationCount: Math.max(0, count),
+        }));
+      }
+    };
+
+    const unsubRecv = socketService.on("notification:received", handleNewNotification);
+    const unsubNew = socketService.on("notification:new", handleNewNotification);
+    const unsubBadge = socketService.on("notification:badge_update", handleBadgeUpdate);
+    const unsubCount = socketService.on("notification:count", handleBadgeUpdate);
+
+    return () => {
+      unsubRecv();
+      unsubNew();
+      unsubBadge();
+      unsubCount();
+    };
+  }, [state.authenticated, state.prefs?.sound, navigate, showToast]);
+
   const triggerSound = () => {
     playSound(state.prefs?.sound);
   };
 
+  const extractWallet = (b, prevWallet = {}) => {
+    if (!b) return prevWallet;
+    const raw = b?.data || b?.billing || b;
+    const walletObj = raw?.wallet || raw;
+
+    let fc = undefined;
+    if (walletObj.featureCredits !== undefined) fc = walletObj.featureCredits;
+    else if (walletObj.feature_credits !== undefined) fc = walletObj.feature_credits;
+    else if (walletObj.fc !== undefined) fc = walletObj.fc;
+    else if (raw.featureCredits !== undefined) fc = raw.featureCredits;
+    else if (raw.feature_credits !== undefined) fc = raw.feature_credits;
+    else if (raw.credits !== undefined && typeof raw.credits === "number") fc = raw.credits;
+
+    let ai = undefined;
+    if (walletObj.aiCredits !== undefined) ai = walletObj.aiCredits;
+    else if (walletObj.ai_credits !== undefined) ai = walletObj.ai_credits;
+    else if (walletObj.ai !== undefined) ai = walletObj.ai;
+    else if (raw.aiCredits !== undefined) ai = raw.aiCredits;
+    else if (raw.ai_credits !== undefined) ai = raw.ai_credits;
+
+    let bal = undefined;
+    if (walletObj.balance !== undefined) bal = walletObj.balance;
+    else if (raw.balance !== undefined) bal = raw.balance;
+
+    return {
+      featureCredits: fc !== undefined ? Number(fc) : (prevWallet.featureCredits ?? 0),
+      aiCredits: ai !== undefined ? Number(ai) : (prevWallet.aiCredits ?? 0),
+      balance: bal !== undefined ? Number(bal) : (prevWallet.balance ?? 0),
+    };
+  };
+
+  const extractSubscription = (b, prevSub = {}) => {
+    if (!b) return prevSub;
+    const raw = b?.data || b?.billing || b;
+    const subObj = raw?.subscription || raw?.sub || raw?.plan || b;
+
+    const candidatePlan =
+      (typeof subObj === "string" ? subObj : null) ||
+      subObj?.planKey ||
+      subObj?.plan_key ||
+      (typeof subObj?.plan === "string" ? subObj.plan : subObj?.plan?.id || subObj?.plan?.planKey || subObj?.plan?.name) ||
+      subObj?.planId ||
+      subObj?.plan_id ||
+      subObj?.tier ||
+      subObj?.tier_name ||
+      subObj?.sku ||
+      subObj?.name ||
+      raw?.planKey ||
+      raw?.plan_key ||
+      (typeof raw?.plan === "string" ? raw.plan : raw?.plan?.id || raw?.plan?.planKey || raw?.plan?.name) ||
+      raw?.planId ||
+      raw?.plan_id ||
+      raw?.tier ||
+      raw?.membership ||
+      b?.plan ||
+      b?.tier;
+
+    if (!candidatePlan && prevSub?.planKey && prevSub.planKey !== "explore") {
+      return prevSub;
+    }
+
+    const key = normalizePlanKey(candidatePlan || prevSub?.planKey || "explore");
+    const subResult = typeof subObj === "object" && subObj !== null ? { ...prevSub, ...subObj } : { ...prevSub };
+
+    return {
+      ...subResult,
+      planKey: key,
+      plan: candidatePlan || key,
+      name: subObj?.name || getPlanDisplayName(key),
+      status: subObj?.status || "active",
+    };
+  };
+
   const updateWallet = (newWalletData) => {
-    setState((prev) => ({
-      ...prev,
-      wallet: {
-        ...prev.wallet,
-        ...newWalletData,
-      },
-    }));
+    setState((prev) => {
+      const delta = typeof newWalletData === "function" ? newWalletData(prev.wallet) : newWalletData;
+      return {
+        ...prev,
+        wallet: {
+          ...prev.wallet,
+          ...delta,
+        },
+      };
+    });
+  };
+
+  const updateSubscription = (subData) => {
+    setState((prev) => {
+      const delta = typeof subData === "function" ? subData(prev.subscription) : subData;
+      return {
+        ...prev,
+        subscription: extractSubscription(delta, prev.subscription),
+      };
+    });
   };
 
   const refreshWallet = async () => {
@@ -178,20 +404,15 @@ export function AppProvider({ children }) {
       if (bRes) {
         setState((prev) => ({
           ...prev,
-          wallet: {
-            ...prev.wallet,
-            featureCredits: bRes.featureCredits ?? prev.wallet?.featureCredits ?? 100,
-            aiCredits: bRes.aiCredits ?? prev.wallet?.aiCredits ?? 20,
-            balance: bRes.balance ?? prev.wallet?.balance ?? 0,
-          },
-          subscription: bRes.subscription || prev.subscription,
+          wallet: extractWallet(bRes, prev.wallet),
+          subscription: extractSubscription(bRes, prev.subscription),
         }));
       }
     } catch {}
   };
 
   // Auth actions
-  const onLoginSuccess = async (account, token, refreshToken) => {
+  const onLoginSuccess = async (account, token, refreshToken, options = {}) => {
     if (token) {
       setStoredTokens(token, refreshToken);
     }
@@ -204,7 +425,11 @@ export function AppProvider({ children }) {
       account?.email ||
       "Member";
 
-    showToast(`Welcome back, ${displayName}! 👋`, "success");
+    if (!options.silent) {
+      justLoggedInAtRef.current = Date.now();
+      const msg = options.message || `Welcome back, ${displayName}! 👋`;
+      showToast(msg, "success");
+    }
 
     setState((prev) => {
       const updated = {
@@ -594,8 +819,8 @@ export function AppProvider({ children }) {
     showToast(nextState === "confirmed" ? "RSVP confirmed!" : "RSVP cancelled.");
   };
 
-  // Settings update
-  const updateSettings = (newPrefs) => {
+  // Settings update & backend preference persistence
+  const updateSettings = async (newPrefs) => {
     setState((prev) => ({
       ...prev,
       prefs: {
@@ -604,6 +829,11 @@ export function AppProvider({ children }) {
       },
     }));
     showToast("Your preferences and notifications are saved. ✨");
+    try {
+      await notificationService.updatePreferences(newPrefs);
+    } catch (err) {
+      console.warn("[AppContext] updatePreferences API error:", err.message);
+    }
   };
 
   // Policy consent
@@ -664,14 +894,116 @@ export function AppProvider({ children }) {
     closeModal();
   };
 
-  // Notifications read
-  const markNotificationRead = (notifId) => {
+  // ── Notification Module Actions ──────────────────────────────────────────────
+  // 4.3 Mark Single Notification as Read
+  const markNotificationRead = async (notifId) => {
+    if (!notifId) return;
+    setState((prev) => {
+      const target = (prev.notifications || []).find((n) => n.id === notifId);
+      const wasUnread = target && !target.read_at && !target.read;
+      return {
+        ...prev,
+        notifications: (prev.notifications || []).map((n) =>
+          n.id === notifId ? { ...n, read_at: n.read_at || new Date().toISOString() } : n
+        ),
+        unreadNotificationCount: wasUnread
+          ? Math.max(0, (prev.unreadNotificationCount || 1) - 1)
+          : prev.unreadNotificationCount,
+      };
+    });
+
+    try {
+      const res = await notificationService.markNotificationRead(notifId);
+      if (res && typeof res.unreadCount === "number") {
+        setState((prev) => ({ ...prev, unreadNotificationCount: res.unreadCount }));
+      }
+    } catch (err) {
+      console.warn("[AppContext] markNotificationRead API error:", err.message);
+    }
+  };
+
+  // 4.4 Mark All Notifications as Read
+  const markAllNotificationsRead = async () => {
+    const nowIso = new Date().toISOString();
     setState((prev) => ({
       ...prev,
-      notifications: prev.notifications.map((n) =>
-        n.id === notifId ? { ...n, read_at: new Date().toISOString() } : n
-      ),
+      notifications: (prev.notifications || []).map((n) => ({
+        ...n,
+        read_at: n.read_at || nowIso,
+      })),
+      unreadNotificationCount: 0,
     }));
+
+    try {
+      const res = await notificationService.markAllNotificationsRead();
+      if (res && typeof res.unreadCount === "number") {
+        setState((prev) => ({ ...prev, unreadNotificationCount: res.unreadCount }));
+      }
+    } catch (err) {
+      console.warn("[AppContext] markAllNotificationsRead API error:", err.message);
+    }
+  };
+
+  // 4.5 Dismiss / Delete Notification
+  const deleteNotification = async (notifId) => {
+    if (!notifId) return;
+    let wasUnread = false;
+    setState((prev) => {
+      const target = (prev.notifications || []).find((n) => n.id === notifId);
+      if (target && !target.read_at && !target.read) wasUnread = true;
+      return {
+        ...prev,
+        notifications: (prev.notifications || []).filter((n) => n.id !== notifId),
+        unreadNotificationCount: wasUnread
+          ? Math.max(0, (prev.unreadNotificationCount || 1) - 1)
+          : prev.unreadNotificationCount,
+      };
+    });
+
+    try {
+      const res = await notificationService.deleteNotification(notifId);
+      if (res && typeof res.unreadCount === "number") {
+        setState((prev) => ({ ...prev, unreadNotificationCount: res.unreadCount }));
+      }
+    } catch (err) {
+      console.warn("[AppContext] deleteNotification API error:", err.message);
+    }
+  };
+
+  // 4.1 Refresh Notification List
+  const refreshNotifications = async (options = {}) => {
+    try {
+      const res = await notificationService.getNotifications(options);
+      const items = Array.isArray(res) ? res : res?.items || [];
+      const unreadCount = typeof res?.unreadCount === "number"
+        ? res.unreadCount
+        : items.filter((n) => !n.read_at && !n.read).length;
+      setState((prev) => ({
+        ...prev,
+        notifications: items,
+        unreadNotificationCount: unreadCount,
+      }));
+      return { items, unreadCount };
+    } catch (err) {
+      console.warn("[AppContext] refreshNotifications error:", err.message);
+      return null;
+    }
+  };
+
+  // 4.2 Refresh Unread Badge Counter
+  const refreshUnreadNotificationCount = async () => {
+    try {
+      const { unreadCount } = await notificationService.getUnreadCount();
+      setState((prev) => ({ ...prev, unreadNotificationCount: unreadCount }));
+      return unreadCount;
+    } catch {
+      return 0;
+    }
+  };
+
+  // 4.6 Send Test Email
+  const sendTestEmail = async (payload) => {
+    return await notificationService.sendTestEmail(payload);
   };
 
   // Block Member (POST /v1/block + cascading state cleanup)
@@ -734,6 +1066,11 @@ export function AppProvider({ children }) {
     setCurrency,
     simulatePurchase,
     markNotificationRead,
+    markAllNotificationsRead,
+    deleteNotification,
+    refreshNotifications,
+    refreshUnreadNotificationCount,
+    sendTestEmail,
     triggerSound,
     activeCall,
     setActiveCall,
@@ -742,6 +1079,7 @@ export function AppProvider({ children }) {
     insufficientCreditsData,
     setInsufficientCreditsData,
     updateWallet,
+    updateSubscription,
     refreshWallet,
     blockMember,
     activeLiveStreams,

@@ -10,6 +10,7 @@ import MembershipTiers from "./MembershipTiers";
 import CreditPacksSection from "./CreditPacksSection";
 import CheckoutModal from "./CheckoutModal";
 import { normalizePlanKey, getPlanDisplayName } from "../../../utils/planUtils";
+import { resolvePlanPrice, setDynamicCatalogQuotes, setDynamicExchangeRates } from "../../../utils/pricingUtils";
 
 /**
  * MembershipView
@@ -20,7 +21,7 @@ import { normalizePlanKey, getPlanDisplayName } from "../../../utils/planUtils";
  * - Direct 1-Click Razorpay Checkout on all cards
  */
 export default function MembershipView() {
-  const { state, openModal, closeModal, updateWallet } = useApp();
+  const { state, openModal, closeModal, updateWallet, updateSubscription, refreshWallet } = useApp();
 
   const [billing, setBilling] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -43,25 +44,46 @@ export default function MembershipView() {
     return () => window.removeEventListener("jm_switch_membership_tab", handleSwitch);
   }, []);
 
-  const loadBillingData = async () => {
+  const loadBillingData = async (curr = selectedCurrency) => {
     setLoading(true);
     try {
-      const bRes = await billingService.getBillingState().catch(() => null);
+      const bRes = await billingService.getBillingState(curr).catch(() => null);
       if (bRes) {
         if (!bRes.availableQuotes || bRes.availableQuotes.length === 0) {
-          const catRes = await billingService.getCatalog().catch(() => null);
-          if (catRes) {
-            bRes.availableQuotes = Array.isArray(catRes)
-              ? catRes
-              : catRes.availableQuotes || catRes.quotes || catRes.items || [];
+          const plansRes = await billingService.getPlans(curr).catch(() => null);
+          if (plansRes?.plans) {
+            bRes.availableQuotes = plansRes.plans.map((p) => ({
+              sku: p.id,
+              name: p.name,
+              price: p.amount,
+              formattedPrice: p.formatted,
+              currency: plansRes.currency || curr,
+              benefits: p.benefits,
+            }));
+          } else {
+            const catRes = await billingService.getCatalog(curr).catch(() => null);
+            if (catRes) {
+              bRes.availableQuotes = Array.isArray(catRes)
+                ? catRes
+                : catRes.availableQuotes || catRes.quotes || catRes.items || [];
+            }
           }
         }
+        if (bRes.availableQuotes) {
+          setDynamicCatalogQuotes(bRes.availableQuotes, curr);
+        }
+        if (bRes.rates) {
+          setDynamicExchangeRates(bRes.rates);
+        } else {
+          billingService.getRates().then((r) => {
+            if (r?.rates) setDynamicExchangeRates(r.rates);
+          }).catch(() => {});
+        }
         setBilling(bRes);
-        updateWallet?.({
-          featureCredits: bRes.featureCredits ?? state.wallet?.featureCredits ?? 100,
-          aiCredits: bRes.aiCredits ?? state.wallet?.aiCredits ?? 20,
-          balance: bRes.balance ?? 0,
-        });
+        refreshWallet?.();
+        if (bRes.subscription || bRes.plan) {
+          updateSubscription?.(bRes.subscription || bRes.plan);
+        }
       }
     } catch {}
 
@@ -74,14 +96,15 @@ export default function MembershipView() {
   };
 
   useEffect(() => {
-    loadBillingData();
-  }, []);
+    loadBillingData(selectedCurrency);
+  }, [selectedCurrency]);
 
   const handleSelectPlan = (sku) => {
     const isQuarterly = sku.includes("quarterly");
     const isPremium = sku.includes("premium");
     const quote = (billing?.availableQuotes || []).find((q) => q.sku === sku);
     const planName = isPremium ? "Premium VIP" : "Connect Plan";
+    const planPrice = resolvePlanPrice(sku, selectedCurrency, quote);
 
     openModal(
       `Confirm ${planName} Upgrade`,
@@ -90,13 +113,13 @@ export default function MembershipView() {
           sku,
           name: planName,
           credits: isPremium ? 2500 : 1000,
-          price: quote?.price ?? (isPremium ? (isQuarterly ? 64.99 : 24.99) : (isQuarterly ? 39.99 : 14.99)),
-          currency: quote?.currency || selectedCurrency,
+          price: planPrice,
+          currency: selectedCurrency,
         }}
-        quote={quote || { sku, currency: selectedCurrency }}
+        quote={quote || { sku, price: planPrice, currency: selectedCurrency }}
         type="subscription"
         selectedCurrency={selectedCurrency}
-        onSuccess={() => loadBillingData()}
+        onSuccess={() => loadBillingData(selectedCurrency)}
         onClose={() => closeModal()}
       />
     );
@@ -114,8 +137,8 @@ export default function MembershipView() {
   const activePlan = normalizePlanKey(rawPlan);
   const activePlanDisplayName = getPlanDisplayName(activePlan);
 
-  const currentFC = state.wallet?.featureCredits ?? 100;
-  const currentAI = state.wallet?.aiCredits ?? 20;
+  const currentFC = state.wallet?.featureCredits !== undefined ? Number(state.wallet.featureCredits) : 0;
+  const currentAI = state.wallet?.aiCredits !== undefined ? Number(state.wallet.aiCredits) : 0;
 
   return (
     <div className="flex flex-col w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 min-h-screen font-sans">
@@ -254,10 +277,12 @@ export default function MembershipView() {
                       onChange={(e) => setSelectedCurrency(e.target.value)}
                     >
                       <option value="USD">USD ($)</option>
+                      <option value="INR">INR (₹)</option>
                       <option value="EUR">EUR (€)</option>
                       <option value="GBP">GBP (£)</option>
-                      <option value="INR">INR (₹)</option>
-                      <option value="JPY">JPY (¥)</option>
+                      <option value="AED">AED (د.إ)</option>
+                      <option value="CAD">CAD ($)</option>
+                      <option value="AUD">AUD ($)</option>
                     </select>
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted text-xs">
                       ▼

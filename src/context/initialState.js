@@ -60,9 +60,10 @@ export function getInitialAppState() {
     passportPlans: [],
     events: [],
     notifications: [],
+    unreadNotificationCount: 0,
     wallet: {
-      featureCredits: 100,
-      aiCredits: 20,
+      featureCredits: 0,
+      aiCredits: 0,
       balance: 0,
     },
     subscription: {

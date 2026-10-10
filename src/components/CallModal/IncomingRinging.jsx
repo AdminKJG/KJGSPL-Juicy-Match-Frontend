@@ -1,11 +1,36 @@
 import React, { useEffect, useRef } from "react";
 import { playRingtone } from "../../utils/formatters";
+import { useApp } from "../../context/AppContext";
 
 export default function IncomingRinging({ callState, sizeMode = "compact", onClose }) {
+  const { state } = useApp();
   const { call, isVideo, performAction } = callState;
   const peer = call?.peer || {};
-  const peerName = peer.pseudonym || peer.name || "Match";
-  const avatarUrl = peer.avatar || peer.photo || "/assets/logo.jpg";
+
+  const matchedConn = state?.connections?.find(
+    (c) =>
+      (call?.connectionId && (c.id === call.connectionId || c.connectionId === call.connectionId)) ||
+      (call?.caller && (c.peer?.id === call.caller || c.peerId === call.caller)) ||
+      (peer?.id && (c.peer?.id === peer.id || c.peerId === peer.id))
+  );
+
+  const peerName =
+    peer.pseudonym ||
+    peer.name ||
+    call?.callerName ||
+    call?.caller_name ||
+    matchedConn?.peer?.pseudonym ||
+    matchedConn?.peer?.name ||
+    matchedConn?.pseudonym ||
+    "Match";
+
+  const avatarUrl =
+    peer.avatar ||
+    peer.photo ||
+    peer.avatarUrl ||
+    matchedConn?.peer?.photo ||
+    matchedConn?.peer?.avatar ||
+    "/assets/logo.jpg";
   const isExpanded = sizeMode === "theater" || sizeMode === "fullscreen";
 
   const ringtoneRef = useRef(null);
@@ -36,12 +61,19 @@ export default function IncomingRinging({ callState, sizeMode = "compact", onClo
     onClose?.();
   };
 
+  const isMinimized = sizeMode === "minimized";
+
   return (
-    <div className="relative w-full h-full min-h-[500px] flex flex-col items-center justify-between p-8 sm:p-10 bg-[radial-gradient(ellipse_at_30%_20%,_#3b1d34,_#0d0812)] text-white select-none">
+    <div className={`relative w-full h-full ${isMinimized ? "min-h-0 p-3 pt-10" : "min-h-[500px] p-8 sm:p-10"} flex flex-col items-center justify-between bg-[radial-gradient(ellipse_at_30%_20%,_#3b1d34,_#0d0812)] text-white select-none`}>
       {/* Top Header */}
-      <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/15 text-white/90 text-xs font-semibold tracking-wider uppercase">
-        <span>Incoming {isVideo ? "Video" : "Voice"} Call</span>
-      </div>
+      {!isMinimized && (
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 border border-white/15 text-white/90 text-xs font-semibold tracking-wider">
+          <img src="/assets/logo.jpg" alt="Juicy Match" className="w-4 h-4 rounded-full object-cover border border-[#e91671]" />
+          <span>Juicy Match</span>
+          <span className="text-white/40">·</span>
+          <span className="text-[#e91671]">{isVideo ? "Video Call" : "Voice Call"}</span>
+        </div>
+      )}
 
       {/* Center Caller Info & Glowing Avatar */}
       <div className="flex flex-col items-center my-auto">

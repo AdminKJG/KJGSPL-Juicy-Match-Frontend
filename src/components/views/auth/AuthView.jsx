@@ -4,6 +4,108 @@ import PolicyModal from "../../common/PolicyModal";
 import { useApp } from "../../../context/AppContext";
 import { authService } from "../../../services/authService";
 
+function ForgotPasswordModalContent({ initialEmail = "", onClose, showToast }) {
+  const [resetEmail, setResetEmail] = useState(initialEmail);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSent, setIsSent] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const clean = resetEmail.trim();
+    if (!clean) return;
+    setIsSubmitting(true);
+    setErrorMsg("");
+
+    try {
+      const res = await authService.forgotPassword(clean);
+      setIsSent(true);
+      showToast(res?.message || "Password reset instructions sent to your email.", "success");
+    } catch (err) {
+      if (err.status === 404) {
+        setIsSent(true);
+        showToast("If this email is registered, instructions have been sent.", "info");
+      } else {
+        const msg = err.message || err.data?.error || err.data?.message || "Failed to send reset instructions.";
+        setErrorMsg(msg);
+        showToast(msg, "error");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (isSent) {
+    return (
+      <div className="flex flex-col items-center text-center gap-3.5 py-2">
+        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-2xl shadow-lg">
+          ✉️
+        </div>
+        <div className="flex flex-col gap-1">
+          <h3 className="text-base font-bold text-white tracking-tight m-0">Instructions Sent</h3>
+          <p className="text-xs sm:text-sm text-white/60 m-0 leading-relaxed max-w-sm">
+            If an account is associated with <span className="text-white font-semibold">{resetEmail}</span>, we've sent password reset instructions. Please check your inbox and spam folder.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-2 px-6 py-2.5 rounded-xl bg-pink hover:bg-[#ff2a85] text-white text-xs font-bold transition-all shadow-[0_4px_14px_rgba(233,22,113,0.35)] cursor-pointer"
+        >
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4 pt-1">
+      <p className="text-xs sm:text-sm text-white/60 m-0 leading-relaxed">
+        Enter your registered email address and we'll send you instructions to reset your password.
+      </p>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="reset-email-input" className="text-xs font-bold text-white/90">
+          Email address
+        </label>
+        <input
+          id="reset-email-input"
+          type="email"
+          required
+          autoFocus
+          value={resetEmail}
+          onChange={(e) => setResetEmail(e.target.value)}
+          placeholder="member@example.com"
+          className="w-full h-11 px-4 rounded-xl bg-white/5 border border-white/15 text-white text-sm placeholder-white/30 focus:border-pink focus:outline-none transition-all shadow-inner"
+        />
+      </div>
+
+      {errorMsg && (
+        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+          {errorMsg}
+        </div>
+      )}
+
+      <div className="flex items-center justify-end gap-3 pt-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 text-white/80 hover:text-white text-xs font-semibold border border-white/10 transition-all cursor-pointer"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={isSubmitting || !resetEmail.trim()}
+          className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-pink hover:bg-[#ff2a85] active:scale-95 text-white text-xs font-bold transition-all shadow-[0_4px_14px_rgba(233,22,113,0.35)] cursor-pointer disabled:opacity-50"
+        >
+          {isSubmitting ? "Sending…" : "Send reset instructions"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export default function AuthView({ isSignup = false }) {
   const { onLoginSuccess, navigate, showToast, openModal, closeModal } = useApp();
 
@@ -70,10 +172,9 @@ export default function AuthView({ isSignup = false }) {
       const account = res.account || res.user || { email: email.trim() };
       const token = res.token || res.accessToken;
       onLoginSuccess(account, token, res.refreshToken);
-      showToast("Welcome back to Juicy Match! 🥂", "success");
       navigate("discover");
     } catch (err) {
-      const errorText = err.message || "";
+      const errorText = err.message || err.data?.error || err.data?.message || "";
       const errorData = err.data || {};
       if (
         errorData.requiresVerification ||
@@ -81,10 +182,11 @@ export default function AuthView({ isSignup = false }) {
         errorText.toLowerCase().includes("verif")
       ) {
         setIsVerifying(true);
-        setError("Please verify your email address to continue.");
-        showToast("Email verification required.");
+        const verifMsg = errorData.message || errorText || "Email verification required.";
+        setError(verifMsg);
+        showToast(verifMsg, "info");
       } else {
-        const msg = errorText || "Invalid email or password.";
+        const msg = errorText || `Login failed (${err.status || 401}). Please check your credentials.`;
         setError(msg);
         showToast(msg, "error");
       }
@@ -146,7 +248,7 @@ export default function AuthView({ isSignup = false }) {
     const policyIdsToSend =
       policies.length > 0
         ? policies.map((p) => p.id)
-        : ["policy-terms-v1", "policy-privacy-v1"];
+        : ["jm-policy-GLOBAL-terms-1", "jm-policy-GLOBAL-privacy-1"];
 
     setLoading(true);
     try {
@@ -160,14 +262,14 @@ export default function AuthView({ isSignup = false }) {
 
       if (res.status === "PENDING_VERIFICATION") {
         setIsVerifying(true);
-        showToast("Verification code sent to your email.");
+        showToast(res.message || "Verification code sent to your email.");
       } else {
-        showToast("Your private profile has been created. 🥂", "success");
-        onLoginSuccess(res.account || res.user, res.token || res.accessToken);
+        showToast(res.message || "Your private profile has been created. 🥂", "success");
+        onLoginSuccess(res.account || res.user, res.token || res.accessToken, null, { silent: true });
         navigate("profile");
       }
     } catch (err) {
-      const msg = err.message || "Registration failed. Please review your input.";
+      const msg = err.message || err.data?.error || err.data?.message || `Registration failed (${err.status || "Error"}).`;
       setError(msg);
       showToast(msg, "error");
     } finally {
@@ -182,11 +284,11 @@ export default function AuthView({ isSignup = false }) {
 
     try {
       const res = await authService.verifyEmail(email, verificationCode);
-      showToast("Email verified successfully.", "success");
-      onLoginSuccess(res.account, res.token);
+      showToast(res.message || "Email verified successfully.", "success");
+      onLoginSuccess(res.account, res.token, null, { silent: true });
       navigate("profile");
     } catch (err) {
-      const msg = err.message || "Invalid or expired verification code.";
+      const msg = err.message || err.data?.error || err.data?.message || `Verification failed (${err.status || "Error"}).`;
       setError(msg);
       showToast(msg, "error");
     } finally {
@@ -198,45 +300,24 @@ export default function AuthView({ isSignup = false }) {
     if (resendCooldown > 0) return;
     setError("");
     try {
-      await authService.resendVerification(email);
-      showToast("Verification code resent.", "success");
+      const res = await authService.resendVerification(email);
+      showToast(res?.message || "Verification code resent.", "success");
       setResendCooldown(30);
     } catch (err) {
-      setError(err.message || "Failed to resend code.");
+      const msg = err.message || err.data?.error || err.data?.message || "Failed to resend code.";
+      setError(msg);
+      showToast(msg, "error");
     }
   };
 
   const handleForgotPassword = () => {
     openModal(
       "Reset your password",
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-        <p>Enter your email address and we'll send you instructions to reset your password.</p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            closeModal();
-            showToast("Password reset instructions sent to your email.", "success");
-          }}
-        >
-          <label className="field">
-            Email address
-            <input
-              type="email"
-              required
-              defaultValue={email}
-              placeholder="member@example.com"
-            />
-          </label>
-          <div className="buttonbar" style={{ marginTop: "1rem" }}>
-            <button type="submit" className="flex items-center justify-center gap-2 h-[46px] px-6 rounded-full bg-pink hover:bg-[#ff2a85] text-white font-semibold transition-all shadow-[0_4px_14px_rgba(233,22,113,0.3)] min-w-[120px]">
-              Send reset instructions
-            </button>
-            <button type="button" className="flex items-center justify-center gap-2 h-[46px] px-6 rounded-full bg-white/5 hover:bg-white/10 text-white font-semibold transition-all border border-white/10 min-w-[120px]" onClick={closeModal}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      </div>
+      <ForgotPasswordModalContent
+        initialEmail={email}
+        onClose={closeModal}
+        showToast={showToast}
+      />
     );
   };
 

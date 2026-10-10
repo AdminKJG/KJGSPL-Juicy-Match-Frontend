@@ -57,10 +57,22 @@ export function useChatMessages({
       });
 
       const localStore = getLocalChatStore();
-      const connLocal = Array.isArray(localStore[connId]) ? localStore[connId] : [];
+      const rawConnLocal = Array.isArray(localStore[connId]) ? localStore[connId] : [];
+      const connLocal = rawConnLocal.filter((m) => {
+        if (!m) return false;
+        const mConn = m.connectionId || m.connection_id || m.conversationId;
+        if (mConn && String(mConn).toLowerCase() !== String(connId).toLowerCase()) return false;
+        return true;
+      });
 
       const pairKey = peerId ? [myId, peerId].sort().join("::") : null;
-      const pairLocal = (pairKey && Array.isArray(localStore[pairKey])) ? localStore[pairKey] : [];
+      const rawPairLocal = (pairKey && Array.isArray(localStore[pairKey])) ? localStore[pairKey] : [];
+      const pairLocal = rawPairLocal.filter((m) => {
+        if (!m) return false;
+        const mConn = m.connectionId || m.connection_id || m.conversationId;
+        if (mConn && String(mConn).toLowerCase() !== String(connId).toLowerCase()) return false;
+        return true;
+      });
 
       const mergedLocalMap = new Map();
       [...connLocal, ...pairLocal].forEach((m) => {
@@ -176,9 +188,17 @@ export function useChatMessages({
           };
         });
 
-        const unsyncedLocal = prev.filter(
-          (p) => !serverIds.has(p.id) && (!p.clientId || !serverClientIds.has(p.clientId))
-        );
+        const unsyncedLocal = prev.filter((p) => {
+          if (!p) return false;
+          const pConn = p.connectionId || p.connection_id || p.conversationId;
+          if (pConn && String(pConn).toLowerCase() !== String(connId).toLowerCase()) {
+            return false;
+          }
+          if (!p.isMine && !p.mine && p.sender !== myId && peerId && p.sender !== peerId) {
+            return false;
+          }
+          return !serverIds.has(p.id) && (!p.clientId || !serverClientIds.has(p.clientId));
+        });
 
         const allMerged = [...mappedServer, ...unsyncedLocal];
         allMerged.sort((a, b) => new Date(a.createdAt || a.created_at || 0) - new Date(b.createdAt || b.created_at || 0));
@@ -254,6 +274,7 @@ export function useChatMessages({
   useEffect(() => {
     const connId = activeConn?.id;
     if (connId) {
+      setMessages([]);
       setConnections((prev) => {
         const target = prev.find((c) => c.id === connId);
         if (!target || Number(target.unreadCount) === 0) return prev;
@@ -270,16 +291,19 @@ export function useChatMessages({
       socketService.joinConnection(connId);
       socketService.markAsRead(connId);
 
-      // Heartbeat sync every 2.5s for seamless real-time delivery
-      // Prevents missed messages if WebSocket packets are dropped or delayed by tunnel
+      // Zero-polling when WebSocket is active: Socket.io pushes messages, edits, and reactions in real-time
+      // Only runs a gentle 30s fallback if the WebSocket connection is offline/disconnected
       const pollTimer = setInterval(() => {
         if (typeof document !== "undefined" && document.hidden) return;
+        if (socketService.isConnected) return;
         loadMessages(true);
-      }, 2500);
+      }, 30000);
 
-      // Immediate sync when tab/window regains focus
+      // Resync when tab/window regains focus if WebSocket was disconnected
       const handleWindowFocus = () => {
-        loadMessages(true);
+        if (!socketService.isConnected) {
+          loadMessages(true);
+        }
       };
       window.addEventListener("focus", handleWindowFocus);
       window.addEventListener("visibilitychange", handleWindowFocus);

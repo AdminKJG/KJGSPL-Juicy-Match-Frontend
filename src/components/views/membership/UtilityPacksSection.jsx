@@ -16,7 +16,7 @@ export default function UtilityPacksSection({ onReload, onOpenTopUp }) {
   const { state, showToast, updateWallet } = useApp();
   const [loadingAction, setLoadingAction] = useState(null);
 
-  const currentFC = state.wallet?.featureCredits ?? 100;
+  const currentFC = state.wallet?.featureCredits !== undefined ? Number(state.wallet.featureCredits) : 0;
 
   const handleAction = async (actionType, costFC, apiCall, successMsg) => {
     if (currentFC < costFC) {

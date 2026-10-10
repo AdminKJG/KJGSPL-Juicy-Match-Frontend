@@ -355,12 +355,15 @@ export function useChatActions({
       showToast("Sending voice note…");
       const clientId = `client-voice-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       markAsMySentMessage(clientId);
-      const myId = state.me?.id || "jm-member-1";
+      const tokenUserId = (typeof getCurrentUserIdFromToken === "function" ? getCurrentUserIdFromToken() : "") || "";
+      const myId = state.me?.id || state.me?.account?.id || tokenUserId || "";
       const peerId = activeConn.peer?.id;
 
       const tempVoiceMsg = {
         id: clientId,
         clientId,
+        connectionId: activeConn.id,
+        connection_id: activeConn.id,
         sender: myId,
         body: "🎙️ Voice note",
         kind: "voice",

@@ -23,16 +23,18 @@ export default function CallEndSummaryModal({
   const connectedSecs = callReceipt?.connected_seconds ?? durationSeconds;
   const billedMinutes = callReceipt?.billed_minutes ?? Math.max(1, Math.ceil(connectedSecs / 60));
   const fcCharged = isCaller ? (callReceipt?.fc_charged ?? (billedMinutes * ratePerMinute)) : 0;
-  const currentFC = state.wallet?.featureCredits ?? 100;
+  const currentFC = state.wallet?.featureCredits !== undefined ? Number(state.wallet.featureCredits) : 0;
 
   const formatSecs = (s) => `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
 
   return (
     <div className="p-8 sm:p-10 text-center flex flex-col items-center justify-center flex-1 min-h-[380px] bg-gradient-to-b from-[#1c1024] to-[#0d0812] text-white">
-      {/* Icon */}
-      <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-[#e91671]/20 to-purple-600/20 border border-pink/30 flex items-center justify-center text-3xl mb-4 shadow-xl">
-        {isCaller ? "🧾" : "🎉"}
-      </div>
+      {/* Juicy Match Logo */}
+      <img
+        src="/assets/logo.jpg"
+        alt="Juicy Match"
+        className="w-12 h-12 rounded-full object-cover border-2 border-[#e91671] mb-3 shadow-[0_0_20px_rgba(233,22,113,0.4)]"
+      />
 
       <h3 className="text-white text-2xl font-bold tracking-tight m-0">
         Call Ended

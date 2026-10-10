@@ -6,8 +6,31 @@ export default function OutgoingRinging({ callState, sizeMode = "compact", onCan
   const { state } = useApp();
   const { call, performAction } = callState;
   const peer = call?.peer || {};
-  const peerName = peer.pseudonym || peer.name || "Member";
-  const avatarUrl = peer.avatar || peer.photo || "/assets/logo.jpg";
+
+  const matchedConn = state?.connections?.find(
+    (c) =>
+      (call?.connectionId && (c.id === call.connectionId || c.connectionId === call.connectionId)) ||
+      (call?.receiver && (c.peer?.id === call.receiver || c.peerId === call.receiver)) ||
+      (peer?.id && (c.peer?.id === peer.id || c.peerId === peer.id))
+  );
+
+  const peerName =
+    peer.pseudonym ||
+    peer.name ||
+    call?.receiverName ||
+    call?.peerName ||
+    matchedConn?.peer?.pseudonym ||
+    matchedConn?.peer?.name ||
+    matchedConn?.pseudonym ||
+    "Match";
+
+  const avatarUrl =
+    peer.avatar ||
+    peer.photo ||
+    peer.avatarUrl ||
+    matchedConn?.peer?.photo ||
+    matchedConn?.peer?.avatar ||
+    "/assets/logo.jpg";
   const isVideo = call?.medium === "video";
   const isExpanded = sizeMode === "theater" || sizeMode === "fullscreen";
 
@@ -70,8 +93,10 @@ export default function OutgoingRinging({ callState, sizeMode = "compact", onCan
     onCancel?.();
   };
 
+  const isMinimized = sizeMode === "minimized";
+
   return (
-    <div className="relative w-full h-full min-h-[520px] flex flex-col items-center justify-between p-8 sm:p-10 bg-gradient-to-b from-[#1c1024] via-[#140a1b] to-[#0d0812] text-white select-none overflow-hidden rounded-2xl">
+    <div className={`relative w-full h-full ${isMinimized ? "min-h-0 p-3 pt-10" : "min-h-[520px] p-8 sm:p-10"} flex flex-col items-center justify-between bg-gradient-to-b from-[#1c1024] via-[#140a1b] to-[#0d0812] text-white select-none overflow-hidden rounded-2xl`}>
       {/* ── Background Local Camera Preview for Video Call ── */}
       {isVideo && (
         <div className="absolute inset-0 z-0 overflow-hidden">
@@ -89,12 +114,15 @@ export default function OutgoingRinging({ callState, sizeMode = "compact", onCan
         </div>
       )}
 
-      {/* Top Header Pill */}
-      <div className="relative z-10 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/15 border border-white/20 text-[#e2d6e8] text-[11px] font-bold tracking-[0.12em] uppercase backdrop-blur-md shadow-lg">
-        <span>🔒 Private Invitation</span>
-        <span className="text-white/40">·</span>
-        <span className="text-[#e91671]">{isVideo ? "Video" : "Voice"}</span>
-      </div>
+      {/* Top Header Pill with Juicy Match Branding */}
+      {!isMinimized && (
+        <div className="relative z-10 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/40 border border-white/20 text-[#e2d6e8] text-[11px] font-bold tracking-[0.08em] backdrop-blur-md shadow-lg">
+          <img src="/assets/logo.jpg" alt="Juicy Match" className="w-4 h-4 rounded-full object-cover border border-[#e91671]" />
+          <span className="text-white uppercase">Juicy Match</span>
+          <span className="text-white/40">·</span>
+          <span className="text-[#e91671] uppercase">{isVideo ? "Video Call" : "Voice Call"}</span>
+        </div>
+      )}
 
       {/* Center Animated Rings & Avatar */}
       <div className="relative z-10 flex flex-col items-center my-auto">
@@ -132,7 +160,7 @@ export default function OutgoingRinging({ callState, sizeMode = "compact", onCan
         {/* Feature Credits Rate Preview */}
         <div className="mt-3 px-3.5 py-1.5 rounded-full bg-black/50 border border-white/15 text-xs text-white/90 flex items-center gap-2 backdrop-blur-md shadow-md">
           <span className="text-amber-400 font-bold flex items-center gap-1">
-            ⚡ {state.wallet?.featureCredits ?? 100} FC
+            ⚡ {state.wallet?.featureCredits !== undefined ? state.wallet.featureCredits : 0} FC
           </span>
           <span className="text-white/30">·</span>
           <span>Rate: {isVideo ? "15" : "5"} FC/min</span>
