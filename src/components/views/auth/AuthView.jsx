@@ -382,7 +382,7 @@ export default function AuthView({ isSignup = false }) {
 
             <div className="mb-8">
               <h2 className="text-3xl font-serif font-bold text-white mb-2">
-                {tab === "signup" ? "Create your profile." : "Welcome back."}
+                {tab === "signup" ? "Create your profile." : "Welcome to Juicy Match"}
               </h2>
               <p className="text-cream/80 m-0">
                 {tab === "signup"
